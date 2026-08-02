@@ -9,11 +9,11 @@ from agents.q_learning import QLearningAgent
 from transfer.transfer_learning import TransferExperiment
 
 def evaluate_logs(scenario_name, logs):
-    """تابع کمکی برای چاپ خلاصه عملکرد جهت تحلیل در گزارش"""
+    """Helper function to print performance summary"""
     init_perf = sum(logs['rewards'][:10]) / 10
     final_perf = sum(logs['rewards'][-10:]) / 10
     total_success = sum(logs['success'])
-    print(f"     -> {scenario_name} | عملكرد اوليه: {init_perf:.1f} | عملكرد نهايي: {final_perf:.1f} | مجموع موفقيت: {total_success}")
+    print(f"     -> {scenario_name:<20} | Initial Perf: {init_perf:>7.1f} | Final Perf: {final_perf:>7.1f} | Total Success: {total_success:>4}")
 
 def main():
     print("1. Creating Source Environment and Training Base Agent...")
