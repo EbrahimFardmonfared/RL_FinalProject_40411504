@@ -1,4 +1,4 @@
-import time
+import time, random
 
 class ValueIterationAgent:
     def __init__(self, env, gamma=0.9, theta=1e-4):
