@@ -197,3 +197,76 @@ class DynamicMazeEnv:
             
         # در فازهای بعدی Reward Shaping را می‌توانیم در همین تابع پیاده کنیم
         return reward, done
+
+    def get_all_states(self):
+        """تولید تمام حالت‌های معتبر برای مقداردهی اولیه V(s)"""
+        states = []
+        for r in range(self.grid_size):
+            for c in range(self.grid_size):
+                if self.grid[r, c] != self.WALL:
+                    for k in [0, 1]:
+                        for p in range(len(self.patrol_route)):
+                            states.append((r, c, k, p))
+        return states
+
+    def get_transitions(self, state, action):
+        """
+        استخراج مدل انتقال P(s'|s,a) و پاداش برای معادله بلمن
+        خروجی: لیستی از تاپل‌ها به فرم (probability, next_state, reward, done)
+        """
+        r, c, k, p = state
+        
+        # اگر عامل در خانه هدف است، اپیزود تمام شده و انتقالی نداریم
+        if (r, c) == self.goal_pos:
+            return [(1.0, state, 0, True)]
+            
+        transitions = []
+        action_probs = [
+            (action, self.PROB_FORWARD),
+            ((action + 1) % 4, self.PROB_DRIFT),
+            ((action - 1) % 4, self.PROB_DRIFT)
+        ]
+        
+        next_p = (p + 1) % len(self.patrol_route)
+        obstacle_pos = self.patrol_route[next_p]
+        
+        for act, prob in action_probs:
+            moves = {0: (-1, 0), 1: (0, 1), 2: (1, 0), 3: (0, -1)}
+            dr, dc = moves[act]
+            nr, nc = r + dr, c + dc
+            
+            hit_wall = False
+            if 0 <= nr < self.grid_size and 0 <= nc < self.grid_size:
+                cell = self.grid[nr, nc]
+                if cell == self.WALL or (cell == self.DOOR and k == 0):
+                    hit_wall = True
+                    nr, nc = r, c
+            else:
+                hit_wall = True
+                nr, nc = r, c
+                
+            next_k = 1 if (nr, nc) == self.key_pos else k
+            next_state = (nr, nc, next_k, next_p)
+            
+            # استفاده از همان منطق پاداش
+            reward = -1
+            done = False
+            if (nr, nc) == obstacle_pos:
+                reward = -50
+            if hit_wall:
+                reward = -10
+            if self.grid[nr, nc] == self.PENALTY:
+                reward = -20
+            if (nr, nc) == self.goal_pos:
+                reward = 100
+                done = True
+                
+            transitions.append((prob, next_state, reward, done))
+            
+        # ترکیب احتمالات تکراری در صورت برخورد به دیوار
+        merged_transitions = {}
+        for p_val, n_s, r_val, d_val in transitions:
+            key = (n_s, r_val, d_val)
+            merged_transitions[key] = merged_transitions.get(key, 0) + p_val
+            
+        return [(p_val, n_s, r_val, d_val) for (n_s, r_val, d_val), p_val in merged_transitions.items()]
