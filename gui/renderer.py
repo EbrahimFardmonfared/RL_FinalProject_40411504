@@ -6,9 +6,7 @@ class MazeRenderer:
         self.env = env
         self.cell_size = cell_size
         self.width = env.grid_size * cell_size
-        # حداقل عرض پنجره را مشخص می‌کنیم تا نوشته‌ها جا شوند
         self.window_width = max(self.width, 450)
-        # ارتفاع را بیشتر کردیم تا اطلاعات ستونی و کامل نوشته شوند
         self.height = env.grid_size * cell_size + 170 
         
         pygame.init()
@@ -35,7 +33,6 @@ class MazeRenderer:
         agent_r, agent_c = state[0], state[1]
         has_key = state[2]
         
-        # حاشیه برای وسط‌چین کردن نقشه در صورت عریض بودن پنجره
         x_offset_map = (self.window_width - self.width) // 2
         
         for r in range(self.env.grid_size):
@@ -57,6 +54,12 @@ class MazeRenderer:
                     
                 pygame.draw.rect(self.screen, color, rect)
                 pygame.draw.rect(self.screen, (180, 180, 180), rect, 1)
+
+                if cell_type == self.env.KEY and not has_key:
+                    pygame.draw.circle(self.screen, (200, 150, 0), rect.center, self.cell_size // 3)
+                    pygame.draw.circle(self.screen, (0, 0, 0), rect.center, self.cell_size // 3, 1)
+                    k_text = self.small_font.render("K", True, (0, 0, 0))
+                    self.screen.blit(k_text, (rect.centerx - 5, rect.centery - 8))
 
                 if policy and cell_type not in [self.env.WALL, self.env.GOAL]:
                     best_a = policy.get(((r, c, has_key)), None)
@@ -106,7 +109,6 @@ class MazeRenderer:
         x_left = 20
         x_mid = 220
         
-        # چیدمان ستونی برای استفاده از کلمات کامل
         ep_img = self.font.render(f"Episode: {info_dict.get('episode', 0)}", True, self.COLORS['text'])
         step_img = self.font.render(f"Step: {info_dict.get('step', 0)}", True, self.COLORS['text'])
         self.screen.blit(ep_img, (x_left, y_base))
@@ -124,7 +126,6 @@ class MazeRenderer:
         algo_img = self.font.render(f"Active Policy: {info_dict.get('algorithm', 'Q-Learning')}", True, (0, 100, 200))
         self.screen.blit(algo_img, (x_left, y_base + 75))
         
-        # راهنمای کامل دکمه‌ها در دو خط
         ctrl_text1 = "[Space]: Pause  |  [R]: Reset  |  [P]: Show Policy"
         ctrl_text2 = "[A]: Switch Algorithm  |  [Up/Down]: Speed Control"
         ctrl_img1 = self.small_font.render(ctrl_text1, True, (80, 80, 80))
