@@ -8,31 +8,93 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from environments.maze import DynamicMazeEnv
 from agents.q_learning import QLearningAgent
+from agents.sarsa_lambda import SarsaLambdaAgent
+from agents.value_iteration import ValueIterationAgent
 from gui.renderer import MazeRenderer
 
-def extract_policy(q_table):
-    """استخراج بهترین عمل برای هر حالت جهت رسم فلش‌های سیاست"""
+def get_agent_policy(env, agent, algo_name):
+    """استخراج امن سیاست برای جلوگیری از خطای ترسیم فلش‌ها"""
     policy = {}
-    for (state, action), q_val in q_table.items():
-        if state not in policy or q_val > q_table.get((state, policy.get(state)), -float('inf')):
-            policy[state] = action
+    for r in range(env.grid_size):
+        for c in range(env.grid_size):
+            if env.grid[r, c] == env.WALL:
+                continue
+            for has_key in [0, 1]:
+                state = (r, c, has_key)
+                if algo_name == 'Value Iteration':
+                    if hasattr(agent, 'get_action'):
+                        policy[state] = agent.get_action(state)
+                    elif hasattr(agent, 'policy') and isinstance(agent.policy, dict):
+                        policy[state] = agent.policy.get(state, 0)
+                else:
+                    q_values = [agent.get_q(state, a) for a in range(4)]
+                    if any(q != 0 for q in q_values):
+                        best_a = q_values.index(max(q_values))
+                        policy[state] = best_a
     return policy
 
+def get_action_safely(agent, algo_name, state):
+    """دریافت امن عمل برای جلوگیری از گیر کردن عامل (چپ و راست رفتن)"""
+    if algo_name == 'Value Iteration':
+        if hasattr(agent, 'get_action'):
+            return agent.get_action(state)
+        elif hasattr(agent, 'policy') and isinstance(agent.policy, dict):
+            return agent.policy.get(state, 0) # در صورت نبود کلید، بالا (0) را برمی‌گرداند
+        return 0 
+    else:
+        q_values = [agent.get_q(state, a) for a in range(4)]
+        best_actions = [a for a in range(4) if q_values[a] == max(q_values)]
+        return best_actions[0] if best_actions else 0
+
 def main():
-    print("Initializing GUI and Training Agent in background (Please wait)...")
     env = DynamicMazeEnv()
+    renderer = MazeRenderer(env, cell_size=30)
     
-    # آموزش سریع یک عامل برای نمایش
-    agent = QLearningAgent(env, decay_type='exponential')
-    agent.train(episodes=400)
-    policy_dict = extract_policy(agent.Q)
+    state = env.reset()
+    loading_info = {
+        'episode': 0, 'step': 0, 'reward': 0, 'key': 0,
+        'status': "Training All Agents... Please wait!",
+        'algorithm': "Initializing..."
+    }
+    renderer.draw_state(state, loading_info, None)
+    pygame.event.pump() 
     
-    renderer = MazeRenderer(env)
+    print("Training Value Iteration Agent...")
+    vi_agent = ValueIterationAgent(env, gamma=0.9, theta=1e-6)
+    # سیستم هوشمند برای پیدا کردن و اجرای حتمی تابع آموزش Value Iteration
+    trained_vi = False
+    for method in ['train', 'solve', 'value_iteration', 'run', 'optimize']:
+        if hasattr(vi_agent, method):
+            getattr(vi_agent, method)()
+            trained_vi = True
+            break
+    if not trained_vi:
+        print("Warning: Could not automatically start Value Iteration training!")
+
+    print("Training Q-Learning Agent...")
+    ql_agent = QLearningAgent(env, decay_type='exponential')
+    ql_agent.train(episodes=400)
+    
+    print("Training SARSA Agent...")
+    sarsa_agent = SarsaLambdaAgent(env, lmbda=0.9, trace_type='replacing')
+    sarsa_agent.train(episodes=400)
+    
+    algo_names = ['Q-Learning', 'SARSA(lambda=0.9)', 'Value Iteration']
+    agents_dict = {
+        'Q-Learning': ql_agent,
+        'SARSA(lambda=0.9)': sarsa_agent,
+        'Value Iteration': vi_agent
+    }
+    
+    current_idx = 0
+    current_algo_name = algo_names[current_idx]
+    current_agent = agents_dict[current_algo_name]
+    policy_dict = get_agent_policy(env, current_agent, current_algo_name)
     
     running = True
     paused = False
     show_policy = False
-    delay = 0.15  # سرعت اولیه انیمیشن
+    delay = 0.15 
     
     episode = 1
     state = env.reset()
@@ -40,8 +102,9 @@ def main():
     total_reward = 0
     status = "Running"
     
+    print("Training Complete! Starting visualization.")
+    
     while running:
-        # مدیریت کلیدهای کنترلی کیبورد
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -55,20 +118,25 @@ def main():
                     total_reward = 0
                     status = "Running"
                 elif event.key == pygame.K_p:
-                    show_policy = not show_policy
+                    show_policy = not show_policy  
+                elif event.key == pygame.K_a: 
+                    current_idx = (current_idx + 1) % 3
+                    current_algo_name = algo_names[current_idx]
+                    current_agent = agents_dict[current_algo_name]
+                    policy_dict = get_agent_policy(env, current_agent, current_algo_name)
+                    state = env.reset()
+                    step = 0
+                    total_reward = 0
+                    status = "Running"
                 elif event.key == pygame.K_UP:
-                    delay = max(0.01, delay - 0.05) # افزایش سرعت (کاهش تاخیر)
+                    delay = max(0.01, delay - 0.05) 
                 elif event.key == pygame.K_DOWN:
-                    delay = min(0.5, delay + 0.05)  # کاهش سرعت
+                    delay = min(0.5, delay + 0.05)  
         
-        # اجرای منطق بازی اگر متوقف نشده باشد
-        if not paused and status == "Running":
-            q_values = [agent.get_q(state, a) for a in range(4)]
-            # استفاده از سیاست حریصانه (بدون اکتشاف) برای ارزیابی نهایی
-            best_actions = [a for a in range(4) if q_values[a] == max(q_values)]
-            action = best_actions[0] if best_actions else 0
-            
+        if not paused and status not in ["Paused", "Goal Reached!", "Failed"]:
+            action = get_action_safely(current_agent, current_algo_name, state)
             next_state, reward, done, _ = env.step(action)
+            
             state = next_state
             step += 1
             total_reward += reward
@@ -76,22 +144,19 @@ def main():
             if done:
                 status = "Goal Reached!" if reward > 0 else "Failed"
                 
-        # بروزرسانی و رندر تصویر
         info = {
             'episode': episode,
             'step': step,
             'reward': total_reward,
             'key': state[2],
-            'status': status
+            'status': status,
+            'algorithm': current_algo_name
         }
         
         renderer.draw_state(state, info, policy_dict if show_policy else None)
-        
-        # کنترل سرعت فریم‌ها
         time.sleep(delay)
         
-        # بازنشانی خودکار اپیزود در صورت اتمام
-        if status != "Running" and not paused:
+        if status in ["Goal Reached!", "Failed"] and not paused:
             time.sleep(1.5)
             episode += 1
             state = env.reset()
