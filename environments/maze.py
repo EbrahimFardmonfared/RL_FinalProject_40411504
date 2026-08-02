@@ -1,0 +1,199 @@
+import numpy as np
+import random
+from collections import deque
+
+class DynamicMazeEnv:
+    def __init__(self):
+        # تنظیمات پایه بر اساس شماره دانشجویی 40411504
+        self.seed = 0
+        self.grid_size = 15
+        
+        # مقادیر المان‌های نقشه
+        self.EMPTY = 0
+        self.WALL = 1
+        self.PENALTY = 2
+        self.START = 3
+        self.GOAL = 4
+        self.KEY = 5
+        self.DOOR = 6
+        
+        # پارامترهای عدم قطعیت حرکت
+        self.PROB_FORWARD = 0.8
+        self.PROB_DRIFT = 0.1
+        
+        # مسیر حلقه‌ای مانع متحرک (مختصات فرضی که در نقشه خالی خواهند بود)
+        self.patrol_route = [(7, 7), (7, 8), (7, 9), (8, 9), (9, 9), (9, 8), (9, 7), (8, 7)]
+        
+        # تولید و اعتبارسنجی نقشه
+        self.grid = None
+        self._generate_valid_map()
+        
+        # وضعیت اولیه عامل
+        self.reset()
+
+    def _generate_valid_map(self):
+        """تولید نقشه تا زمانی که یک نقشه معتبر (حل‌پذیر) پیدا شود."""
+        np.random.seed(self.seed)
+        random.seed(self.seed)
+        
+        is_valid = False
+        while not is_valid:
+            self._build_grid()
+            is_valid = self._bfs_check()
+            if not is_valid:
+                # تغییر موقت سید برای تلاش مجدد در صورت بسته بودن مسیر
+                self.seed += 1 
+                np.random.seed(self.seed)
+                random.seed(self.seed)
+
+    def _build_grid(self):
+        """ساختاردهی اولیه نقشه، دیوارها، جریمه‌ها و المان‌های کلیدی"""
+        self.grid = np.zeros((self.grid_size, self.grid_size), dtype=int)
+        
+        # جایگذاری المان‌های اصلی (مکان‌های ثابت برای سادگی تست، قابل تصادفی‌سازی)
+        self.start_pos = (0, 0)
+        self.key_pos = (2, 12)
+        self.door_pos = (7, 12) # در بسته، مسیر منتهی به هدف را مسدود می‌کند
+        self.goal_pos = (14, 14)
+        
+        self.grid[self.start_pos] = self.START
+        self.grid[self.key_pos] = self.KEY
+        self.grid[self.door_pos] = self.DOOR
+        self.grid[self.goal_pos] = self.GOAL
+        
+        # اضافه کردن حداقل 15 درصد مانع (15 * 15 * 0.15 ≈ 34 دیوار)
+        num_walls = 35
+        # اضافه کردن حداقل 5 خانه جریمه
+        num_penalties = 6
+        
+        # محافظت از مسیر مانع متحرک تا دیوار روی آن قرار نگیرد
+        protected_cells = set([self.start_pos, self.key_pos, self.door_pos, self.goal_pos] + self.patrol_route)
+        
+        empty_cells = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if (r, c) not in protected_cells]
+        np.random.shuffle(empty_cells)
+        
+        for i in range(num_walls):
+            r, c = empty_cells.pop()
+            self.grid[r, c] = self.WALL
+            
+        for i in range(num_penalties):
+            r, c = empty_cells.pop()
+            self.grid[r, c] = self.PENALTY
+
+    def _bfs_check(self):
+        """بررسی وجود مسیر از شروع به کلید و از کلید به هدف"""
+        def bfs(start, target, ignore_door=False):
+            queue = deque([start])
+            visited = set([start])
+            
+            while queue:
+                r, c = queue.popleft()
+                if (r, c) == target:
+                    return True
+                    
+                for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < self.grid_size and 0 <= nc < self.grid_size:
+                        if (nr, nc) not in visited:
+                            cell = self.grid[nr, nc]
+                            # دیوارها همیشه غیرقابل عبورند. در بسته فقط وقتی نادیده گرفته می‌شود که کلید را داشته باشیم.
+                            if cell != self.WALL:
+                                if cell == self.DOOR and not ignore_door:
+                                    continue
+                                visited.add((nr, nc))
+                                queue.append((nr, nc))
+            return False
+
+        # 1. مسیری از شروع به کلید وجود داشته باشد (بدون عبور از در بسته)
+        path_to_key = bfs(self.start_pos, self.key_pos, ignore_door=False)
+        # 2. مسیری از کلید به هدف وجود داشته باشد (در این مرحله در بسته قابل عبور است)
+        path_to_goal = bfs(self.key_pos, self.goal_pos, ignore_door=True)
+        
+        return path_to_key and path_to_goal
+
+    def reset(self):
+        """بازگرداندن محیط به حالت اولیه در شروع هر اپیزود"""
+        self.agent_pos = self.start_pos
+        self.has_key = 0
+        self.patrol_idx = 0
+        self.steps = 0
+        # تعریف حالت بر اساس فرمول: (x, y, k, p)
+        return self._get_state()
+
+    def _get_state(self):
+        return (self.agent_pos[0], self.agent_pos[1], self.has_key, self.patrol_idx)
+
+    def step(self, action):
+        """
+        اعمال عمل انتخابی، محاسبه دینامیک انتقال (MDP)، حرکت مانع و محاسبه پاداش.
+        action: 0 (بالا)، 1 (راست)، 2 (پایین)، 3 (چپ)
+        """
+        self.steps += 1
+        
+        # 1. اعمال عدم قطعیت (احتمال 0.8 جهت اصلی، 0.1 جهت‌های عمود)
+        actual_action = action
+        rand_val = random.random()
+        if rand_val > self.PROB_FORWARD:
+            if rand_val > self.PROB_FORWARD + self.PROB_DRIFT:
+                actual_action = (action + 1) % 4 # انحراف به راست
+            else:
+                actual_action = (action - 1) % 4 # انحراف به چپ
+                
+        # 2. محاسبه مکان جدید عامل
+        moves = {0: (-1, 0), 1: (0, 1), 2: (1, 0), 3: (0, -1)}
+        dr, dc = moves[actual_action]
+        nr, nc = self.agent_pos[0] + dr, self.agent_pos[1] + dc
+        
+        hit_wall = False
+        
+        # بررسی برخورد با مرزها، دیوارها یا درِ بسته (بدون کلید)
+        if 0 <= nr < self.grid_size and 0 <= nc < self.grid_size:
+            cell = self.grid[nr, nc]
+            if cell == self.WALL:
+                hit_wall = True
+                nr, nc = self.agent_pos # بازگشت به جای قبلی
+            elif cell == self.DOOR and self.has_key == 0:
+                hit_wall = True
+                nr, nc = self.agent_pos
+        else:
+            hit_wall = True
+            nr, nc = self.agent_pos
+            
+        self.agent_pos = (nr, nc)
+        
+        # 3. حرکت مانع متحرک در مسیر حلقه‌ای
+        self.patrol_idx = (self.patrol_idx + 1) % len(self.patrol_route)
+        obstacle_pos = self.patrol_route[self.patrol_idx]
+        
+        # 4. بروزرسانی وضعیت کلید
+        if self.agent_pos == self.key_pos:
+            self.has_key = 1
+            
+        # 5. محاسبه پاداش (بسته به نوع پاداش، در اینجا مدل Sparse پایه قرار داده شده است)
+        reward, done = self._calculate_reward_and_done(hit_wall, obstacle_pos)
+        
+        return self._get_state(), reward, done, {}
+
+    def _calculate_reward_and_done(self, hit_wall, obstacle_pos):
+        reward = -1 # هزینه هر حرکت (Step Penalty)
+        done = False
+        
+        # برخورد با مانع متحرک
+        if self.agent_pos == obstacle_pos:
+            reward = -50
+            
+        # برخورد با دیوار
+        if hit_wall:
+            reward = -10
+            
+        # ورود به خانه جریمه
+        if self.grid[self.agent_pos] == self.PENALTY:
+            reward = -20
+            
+        # رسیدن به هدف
+        if self.agent_pos == self.goal_pos:
+            reward = 100
+            done = True
+            
+        # در فازهای بعدی Reward Shaping را می‌توانیم در همین تابع پیاده کنیم
+        return reward, done
