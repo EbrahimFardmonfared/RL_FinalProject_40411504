@@ -1,5 +1,6 @@
 import numpy as np
 import random
+import copy
 from collections import deque
 
 class DynamicMazeEnv:
@@ -270,3 +271,75 @@ class DynamicMazeEnv:
             merged_transitions[key] = merged_transitions.get(key, 0) + p_val
             
         return [(p_val, n_s, r_val, d_val) for (n_s, r_val, d_val), p_val in merged_transitions.items()]
+
+    def generate_similar_map(self):
+        """ساخت محیط مقصد مشابه: جابجایی حدود 18 درصد موانع با حفظ سایر المان‌ها"""
+        new_env = copy.deepcopy(self)
+        
+        # استخراج مختصات تمام دیوارهای فعلی
+        walls = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.WALL]
+        num_to_move = int(len(walls) * 0.18) # جابجایی حدود 18 درصد (بین 15 تا 20 درصد خواسته شده)
+        
+        # حذف تصادفی تعدادی از دیوارها
+        removed_walls = random.sample(walls, num_to_move)
+        for r, c in removed_walls:
+            new_env.grid[r, c] = self.EMPTY
+            
+        # پیدا کردن خانه‌های خالی مجاز برای قرار دادن دیوارهای جدید
+        protected = set([new_env.start_pos, new_env.key_pos, new_env.door_pos, new_env.goal_pos] + new_env.patrol_route)
+        empty_cells = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) 
+                       if new_env.grid[r, c] == self.EMPTY and (r, c) not in protected]
+        
+        # اضافه کردن دیوارهای جدید
+        added_walls = random.sample(empty_cells, num_to_move)
+        for r, c in added_walls:
+            new_env.grid[r, c] = self.WALL
+            
+        # بررسی حل‌پذیری با BFS؛ اگر نقشه بسته شده بود، دوباره تلاش کن
+        if not new_env._bfs_check():
+            return self.generate_similar_map()
+            
+        return new_env
+
+    def generate_different_map(self):
+        """ساخت محیط مقصد متفاوت: جابجایی 35 درصد موانع، تغییر مکان کلید، افزودن 3 جریمه جدید"""
+        new_env = copy.deepcopy(self)
+        protected = set([new_env.start_pos, new_env.door_pos, new_env.goal_pos] + new_env.patrol_route)
+        
+        # 1. تغییر مکان کلید
+        new_env.grid[new_env.key_pos] = self.EMPTY
+        empty_cells = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) 
+                       if new_env.grid[r, c] == self.EMPTY and (r, c) not in protected]
+        new_key = random.choice(empty_cells)
+        new_env.key_pos = new_key
+        new_env.grid[new_key] = self.KEY
+        protected.add(new_key)
+        
+        # 2. جابجایی 35 درصد موانع
+        walls = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.WALL]
+        num_to_move = int(len(walls) * 0.35)
+        
+        removed_walls = random.sample(walls, num_to_move)
+        for r, c in removed_walls:
+            new_env.grid[r, c] = self.EMPTY
+            
+        # آپدیت لیست خانه‌های خالی بعد از حذف دیوارها
+        empty_cells = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) 
+                       if new_env.grid[r, c] == self.EMPTY and (r, c) not in protected]
+        
+        added_walls = random.sample(empty_cells, num_to_move)
+        for r, c in added_walls:
+            new_env.grid[r, c] = self.WALL
+            
+        # 3. افزودن 3 خانه جریمه جدید
+        empty_cells = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) 
+                       if new_env.grid[r, c] == self.EMPTY and (r, c) not in protected and (r, c) not in added_walls]
+        added_penalties = random.sample(empty_cells, 3)
+        for r, c in added_penalties:
+            new_env.grid[r, c] = self.PENALTY
+            
+        # بررسی حل‌پذیری
+        if not new_env._bfs_check():
+            return self.generate_different_map()
+            
+        return new_env
