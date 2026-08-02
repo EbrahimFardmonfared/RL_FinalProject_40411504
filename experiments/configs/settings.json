@@ -1,0 +1,31 @@
+{
+    "environment": {
+        "max_steps_per_episode": 200,
+        "action_success_prob": 0.8,
+        "slip_prob": 0.1,
+        "rewards": {
+            "goal": 100,
+            "key": 20,
+            "penalty": -20,
+            "wall": -10,
+            "step": -1
+        }
+    },
+    "agents": {
+        "value_iteration": {
+            "gamma_values": [0.7, 0.9, 0.99],
+            "theta": 1e-6
+        },
+        "q_learning": {
+            "alpha": 0.1,
+            "gamma": 0.99,
+            "epsilon_start": 1.0,
+            "epsilon_end": 0.01,
+            "decay_rate": 0.995
+        },
+        "sarsa_lambda": {
+            "lambda_values": [0.7, 0.9, 0.99],
+            "trace_type": "replacing"
+        }
+    }
+}
