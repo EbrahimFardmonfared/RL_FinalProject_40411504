@@ -1,6 +1,7 @@
 from environments.maze import DynamicMazeEnv
 from agents.value_iteration import ValueIterationAgent
 from agents.q_learning import QLearningAgent
+from agents.sarsa_lambda import SarsaLambdaAgent
 
 def main():
     print("Initializing Dynamic Maze Environment...")
@@ -23,27 +24,32 @@ def main():
     # ==========================================
     print("\n" + "="*50)
     print("--- Running Q-Learning ---")
+    episodes = 500
     
-    episodes = 500 # تعداد اپیزودها برای آموزش
-    
-    # تست 1: کاهش نمایی (Exponential Decay)
     print(f"\nTraining Q-Learning with Exponential Decay ({episodes} episodes)...")
     ql_exp = QLearningAgent(env, decay_type='exponential')
     logs_exp = ql_exp.train(episodes=episodes)
-    # محاسبه میانگین پاداش در 10 اپیزود آخر برای بررسی میزان یادگیری
-    avg_reward_exp = sum(logs_exp['rewards'][-10:]) / 10
-    total_success_exp = sum(logs_exp['success'])
-    print(f"Final 10 episodes average reward: {avg_reward_exp:.2f}")
-    print(f"Total successful episodes (reached goal): {total_success_exp}")
+    print(f"Final 10 episodes avg reward: {sum(logs_exp['rewards'][-10:])/10:.2f} | Total Successes: {sum(logs_exp['success'])}")
     
-    # تست 2: کاهش خطی (Linear Decay)
     print(f"\nTraining Q-Learning with Linear Decay ({episodes} episodes)...")
     ql_linear = QLearningAgent(env, decay_type='linear')
     logs_linear = ql_linear.train(episodes=episodes)
-    avg_reward_linear = sum(logs_linear['rewards'][-10:]) / 10
-    total_success_linear = sum(logs_linear['success'])
-    print(f"Final 10 episodes average reward: {avg_reward_linear:.2f}")
-    print(f"Total successful episodes (reached goal): {total_success_linear}")
+    print(f"Final 10 episodes avg reward: {sum(logs_linear['rewards'][-10:])/10:.2f} | Total Successes: {sum(logs_linear['success'])}")
+
+    # ==========================================
+    # بخش سوم: اجرای SARSA(lambda)
+    # ==========================================
+    print("\n" + "="*50)
+    print("--- Running SARSA(lambda) ---")
+    
+    # تست مقادیر مختلف لامبدا طبق خواسته داکیومنت
+    lambda_values = [0.7, 0.9, 0.99]
+    
+    for lmbda in lambda_values:
+        print(f"\nTraining SARSA(lambda={lmbda}) with Replacing Trace ({episodes} episodes)...")
+        sarsa_agent = SarsaLambdaAgent(env, lmbda=lmbda, trace_type='replacing')
+        logs_sarsa = sarsa_agent.train(episodes=episodes)
+        print(f"Final 10 episodes avg reward: {sum(logs_sarsa['rewards'][-10:])/10:.2f} | Total Successes: {sum(logs_sarsa['success'])}")
 
 if __name__ == "__main__":
     main()
