@@ -51,24 +51,26 @@ class DynamicMazeEnv:
         """ساختاردهی اولیه نقشه، دیوارها، جریمه‌ها و المان‌های کلیدی"""
         self.grid = np.zeros((self.grid_size, self.grid_size), dtype=int)
         
-        # جایگذاری المان‌های اصلی (مکان‌های ثابت برای سادگی تست، قابل تصادفی‌سازی)
+        # جایگذاری المان‌های اصلی با ایجاد گلوگاه اجباری برای در
         self.start_pos = (0, 0)
         self.key_pos = (2, 12)
-        self.door_pos = (7, 12) # در بسته، مسیر منتهی به هدف را مسدود می‌کند
         self.goal_pos = (14, 14)
+        self.door_pos = (13, 14) # در دقیقاً چسبیده به هدف قرار می‌گیرد
+        self.choke_wall = (14, 13) # مسدود کردن تنها راه فرعی به هدف
         
         self.grid[self.start_pos] = self.START
         self.grid[self.key_pos] = self.KEY
-        self.grid[self.door_pos] = self.DOOR
         self.grid[self.goal_pos] = self.GOAL
+        self.grid[self.door_pos] = self.DOOR
+        self.grid[self.choke_wall] = self.WALL # این دیوار تضمین می‌کند که در دور زده نشود
         
         # اضافه کردن حداقل 15 درصد مانع (15 * 15 * 0.15 ≈ 34 دیوار)
-        num_walls = 35
+        num_walls = 34
         # اضافه کردن حداقل 5 خانه جریمه
         num_penalties = 6
         
-        # محافظت از مسیر مانع متحرک تا دیوار روی آن قرار نگیرد
-        protected_cells = set([self.start_pos, self.key_pos, self.door_pos, self.goal_pos] + self.patrol_route)
+        # محافظت از مسیرها تا دیوار روی آن‌ها قرار نگیرد
+        protected_cells = set([self.start_pos, self.key_pos, self.door_pos, self.goal_pos, self.choke_wall] + self.patrol_route)
         
         empty_cells = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if (r, c) not in protected_cells]
         np.random.shuffle(empty_cells)
