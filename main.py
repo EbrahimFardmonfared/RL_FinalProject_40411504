@@ -1,24 +1,49 @@
 from environments.maze import DynamicMazeEnv
 from agents.value_iteration import ValueIterationAgent
+from agents.q_learning import QLearningAgent
 
 def main():
     print("Initializing Dynamic Maze Environment...")
     env = DynamicMazeEnv()
     print(f"Maze created successfully with Seed = {env.seed}")
     
-    # تست 3 ضریب تنزیل مختلف طبق خواسته داکیومنت
+    # ==========================================
+    # بخش اول: اجرای Value Iteration
+    # ==========================================
+    print("\n" + "="*50)
+    print("--- Running Value Iteration ---")
     gamma_values = [0.7, 0.9, 0.99]
-    
     for gamma in gamma_values:
-        print(f"\n{'-'*40}")
-        print(f"Running Value Iteration with Gamma = {gamma} ...")
+        print(f"\nGamma = {gamma}:")
+        vi_agent = ValueIterationAgent(env, gamma=gamma)
+        iterations, exec_time = vi_agent.run()
         
-        agent = ValueIterationAgent(env, gamma=gamma)
-        iterations, exec_time = agent.run()
-        
-        # این اطلاعات برای نوشتن گزارش تحلیلی نهایی بسیار مهم هستند
-        print(f"Finished in {iterations} iterations.")
-        print(f"Time taken: {exec_time:.4f} seconds.")
+    # ==========================================
+    # بخش دوم: اجرای Q-Learning
+    # ==========================================
+    print("\n" + "="*50)
+    print("--- Running Q-Learning ---")
+    
+    episodes = 500 # تعداد اپیزودها برای آموزش
+    
+    # تست 1: کاهش نمایی (Exponential Decay)
+    print(f"\nTraining Q-Learning with Exponential Decay ({episodes} episodes)...")
+    ql_exp = QLearningAgent(env, decay_type='exponential')
+    logs_exp = ql_exp.train(episodes=episodes)
+    # محاسبه میانگین پاداش در 10 اپیزود آخر برای بررسی میزان یادگیری
+    avg_reward_exp = sum(logs_exp['rewards'][-10:]) / 10
+    total_success_exp = sum(logs_exp['success'])
+    print(f"Final 10 episodes average reward: {avg_reward_exp:.2f}")
+    print(f"Total successful episodes (reached goal): {total_success_exp}")
+    
+    # تست 2: کاهش خطی (Linear Decay)
+    print(f"\nTraining Q-Learning with Linear Decay ({episodes} episodes)...")
+    ql_linear = QLearningAgent(env, decay_type='linear')
+    logs_linear = ql_linear.train(episodes=episodes)
+    avg_reward_linear = sum(logs_linear['rewards'][-10:]) / 10
+    total_success_linear = sum(logs_linear['success'])
+    print(f"Final 10 episodes average reward: {avg_reward_linear:.2f}")
+    print(f"Total successful episodes (reached goal): {total_success_linear}")
 
 if __name__ == "__main__":
     main()
