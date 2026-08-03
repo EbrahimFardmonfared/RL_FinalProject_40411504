@@ -12,7 +12,6 @@ class QLearningAgent:
         self.decay_rate = decay_rate
         self.decay_type = decay_type
         
-        # جدول Q به صورت دیکشنری (برای مدیریت فضای حالت 4 بعدی)
         self.Q = defaultdict(float)
 
     def get_q(self, state, action):
@@ -21,13 +20,13 @@ class QLearningAgent:
     def choose_action(self, state, epsilon):
         """انتخاب عمل با استراتژی Epsilon-Greedy"""
         if random.uniform(0, 1) < epsilon:
-            return self.env.action_space.sample() # اکتشاف
+            # رفع باگ action_space: انتخاب تصادفی بین 0 تا 3
+            return random.randint(0, 3) 
         else:
-            # بهره‌برداری: انتخاب عملی که بیشترین مقدار Q را دارد
-            q_values = [self.get_q(state, a) for a in range(self.env.action_space.n)]
+            # رفع باگ action_space: حلقه روی 4 اکشن
+            q_values = [self.get_q(state, a) for a in range(4)]
             max_q = max(q_values)
-            # اگر چند عمل ماکزیمم یکسان داشتند، یکی را تصادفی انتخاب کن
-            best_actions = [a for a in range(self.env.action_space.n) if q_values[a] == max_q]
+            best_actions = [a for a in range(4) if q_values[a] == max_q]
             return random.choice(best_actions)
 
     def train(self, episodes=1000):
@@ -48,16 +47,14 @@ class QLearningAgent:
             while not done:
                 action = self.choose_action(state, self.epsilon)
                 
-                # *** دریافت info برای شمارش دقیق رویدادها (اصلاح Reward Shaping) ***
                 next_state, reward, done, info = self.env.step(action)
                 
-                # به‌روزرسانی جدول Q (معادله بلمن)
-                best_next_action = np.argmax([self.get_q(next_state, a) for a in range(self.env.action_space.n)])
+                # رفع باگ action_space: حلقه روی 4 اکشن
+                best_next_action = np.argmax([self.get_q(next_state, a) for a in range(4)])
                 td_target = reward + self.gamma * self.get_q(next_state, best_next_action)
                 td_error = td_target - self.get_q(state, action)
                 self.Q[(state, action)] = self.get_q(state, action) + self.alpha * td_error
                 
-                # *** ثبت رویدادها با استفاده از دیکشنری info به جای مقایسه عددی reward ***
                 if info.get('hit_wall', False):
                     wall_hits += 1
                 if info.get('hit_penalty', False):
@@ -67,7 +64,6 @@ class QLearningAgent:
                 total_reward += reward
                 step += 1
                 
-            # کاهش اپسیلون بر اساس نوع انتخاب شده
             if self.decay_type == 'exponential':
                 self.epsilon = max(self.epsilon_end, self.epsilon * self.decay_rate)
             elif self.decay_type == 'linear':

@@ -11,21 +11,23 @@ class SarsaLambdaAgent:
         self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.decay_rate = decay_rate
-        self.trace_type = trace_type # 'replacing' یا 'accumulating'
+        self.trace_type = trace_type
         
         self.Q = defaultdict(float)
-        self.E = defaultdict(float) # Eligibility Traces
+        self.E = defaultdict(float) 
 
     def get_q(self, state, action):
         return self.Q.get((state, action), 0.0)
 
     def choose_action(self, state, epsilon):
         if random.uniform(0, 1) < epsilon:
-            return self.env.action_space.sample()
+            # رفع باگ action_space
+            return random.randint(0, 3)
         else:
-            q_values = [self.get_q(state, a) for a in range(self.env.action_space.n)]
+            # رفع باگ action_space
+            q_values = [self.get_q(state, a) for a in range(4)]
             max_q = max(q_values)
-            best_actions = [a for a in range(self.env.action_space.n) if q_values[a] == max_q]
+            best_actions = [a for a in range(4) if q_values[a] == max_q]
             return random.choice(best_actions)
 
     def train(self, episodes=1000):
@@ -35,7 +37,7 @@ class SarsaLambdaAgent:
         penalty_hits_list = []
         
         for episode in range(episodes):
-            self.E.clear() # پاک کردن ردپاها در ابتدای هر اپیزود
+            self.E.clear() 
             
             state = self.env.reset()
             action = self.choose_action(state, self.epsilon)
@@ -47,30 +49,24 @@ class SarsaLambdaAgent:
             done = False
             
             while not done:
-                # *** دریافت info برای شمارش دقیق رویدادها (اصلاح Reward Shaping) ***
                 next_state, reward, done, info = self.env.step(action)
                 next_action = self.choose_action(next_state, self.epsilon)
                 
-                # محاسبه خطای TD
                 td_target = reward + self.gamma * self.get_q(next_state, next_action)
                 td_error = td_target - self.get_q(state, action)
                 
-                # به‌روزرسانی ردپا (Eligibility Trace)
                 if self.trace_type == 'accumulating':
                     self.E[(state, action)] = self.E.get((state, action), 0.0) + 1.0
-                else: # replacing
+                else: 
                     self.E[(state, action)] = 1.0
                     
-                # به‌روزرسانی تمام جفت‌های (حالت، عمل) که ردپایشان صفر نیست
                 for (s, a) in list(self.E.keys()):
                     self.Q[(s, a)] = self.get_q(s, a) + self.alpha * td_error * self.E[(s, a)]
                     self.E[(s, a)] *= self.gamma * self.lmbda
                     
-                    # حذف مقادیر بسیار کوچک برای بهینه‌سازی حافظه و سرعت
                     if self.E[(s, a)] < 1e-4:
                         del self.E[(s, a)]
                         
-                # *** ثبت رویدادها با استفاده از info ***
                 if info.get('hit_wall', False):
                     wall_hits += 1
                 if info.get('hit_penalty', False):
