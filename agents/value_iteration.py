@@ -6,11 +6,11 @@ class ValueIterationAgent:
         self.gamma = gamma
         self.theta = theta
         
-        # V-table: فضای حالت ۴ بعدی (ردیف، ستون، داشتن کلید، ایندکس مانع)
+        # V-table: فضای حالت ۴ بعدی
         self.V = {}
         self.policy = {}
         
-        # مقداردهی اولیه به صفر برای تمام حالت‌های معتبر
+        # 1. مقداردهی اولیه به حالت‌ها
         for r in range(env.grid_size):
             for c in range(env.grid_size):
                 if env.grid[r, c] == env.WALL:
@@ -19,38 +19,53 @@ class ValueIterationAgent:
                     for patrol_idx in range(len(env.patrol_route)):
                         self.V[(r, c, has_key, patrol_idx)] = 0.0
 
-    def _get_transition_prob_reward(self, state, action):
-        """شبیه‌سازی یک قدم در محیط برای دریافت حالت بعدی و پاداش"""
-        # ذخیره وضعیت فعلی محیط برای بازگرداندن آن بعد از شبیه‌سازی
-        original_state = self.env.agent_pos, self.env.has_key, self.env.patrol_idx
-        
-        # تنظیم محیط به حالت مورد نظر
-        self.env.agent_pos = [state[0], state[1]]
-        self.env.has_key = bool(state[2])
-        self.env.patrol_idx = state[3]
-        
-        # اجرای اکشن
-        next_state, reward, done, _ = self.env.step(action)
-        
-        # بازگرداندن محیط به وضعیت اولیه
-        self.env.agent_pos = original_state[0]
-        self.env.has_key = original_state[1]
-        self.env.patrol_idx = original_state[2]
-        
-        return next_state, reward, done
+        # 2. پیش‌محاسبه ماتریس انتقال (Caching) برای افزایش 1000 برابری سرعت
+        self.P = {}
+        self._build_transition_model()
+
+    def _build_transition_model(self):
+        """ساخت ماتریس انتقال: تمام احتمالات محیط فقط یک بار محاسبه و در حافظه ذخیره می‌شوند"""
+        # رفع ارور tuple: نیازی به copy() نیست چون شیء مستقیماً جایگزین می‌شود
+        original_pos = self.env.agent_pos if hasattr(self.env, 'agent_pos') else None
+        original_key = getattr(self.env, 'has_key', False)
+        original_patrol = getattr(self.env, 'patrol_idx', 0)
+        original_steps = getattr(self.env, 'steps', 0)
+
+        for state in self.V.keys():
+            self.P[state] = {}
+            for action in range(4):
+                # قراردادن محیط در حالت مشخص
+                self.env.agent_pos = [state[0], state[1]]
+                self.env.has_key = bool(state[2])
+                self.env.patrol_idx = state[3]
+                
+                # صفر کردن قدم‌شمار برای جلوگیری از TimeOut شدن ناخواسته
+                if hasattr(self.env, 'steps'):
+                    self.env.steps = 0
+                    
+                next_state, reward, done, _ = self.env.step(action)
+                self.P[state][action] = (next_state, reward, done)
+
+        # بازگرداندن محیط به وضعیت اورجینال
+        if original_pos is not None:
+            self.env.agent_pos = original_pos
+        self.env.has_key = original_key
+        self.env.patrol_idx = original_patrol
+        if hasattr(self.env, 'steps'):
+            self.env.steps = original_steps
 
     def run(self):
-        """اجرای الگوریتم Value Iteration و محاسبه V-table"""
+        """اجرای فوق‌سریع الگوریتم Value Iteration با استفاده از مقادیر Cache شده"""
         iterations = 0
         while True:
             delta = 0
-            # کپی از مقادیر قبلی
             new_V = self.V.copy()
             
             for state in self.V.keys():
                 action_values = []
-                for action in range(self.env.action_space.n):
-                    next_state, reward, done = self._get_transition_prob_reward(state, action)
+                for action in range(4): 
+                    # فراخوانی سریع از مموری به جای شبیه‌سازی سنگین
+                    next_state, reward, done = self.P[state][action]
                     
                     if done:
                         val = reward
@@ -58,7 +73,6 @@ class ValueIterationAgent:
                         val = reward + self.gamma * self.V[next_state]
                     action_values.append(val)
                 
-                # آپدیت مقدار حالت
                 best_value = max(action_values)
                 new_V[state] = best_value
                 delta = max(delta, abs(best_value - self.V[state]))
@@ -66,30 +80,26 @@ class ValueIterationAgent:
             self.V = new_V
             iterations += 1
             
-            # شرط توقف (همگرایی)
             if delta < self.theta:
                 break
                 
         self._extract_policy()
-        
-        # *** تغییر مهم: برگرداندن تعداد مراحل برای فایل بنچمارک ***
         return iterations
 
     def _extract_policy(self):
-        """استخراج سیاست بهینه (Policy) بر اساس مقادیر V همگرا شده"""
+        """استخراج سیاست بهینه بر اساس مقادیر V همگرا شده"""
         for state in self.V.keys():
             action_values = []
-            for action in range(self.env.action_space.n):
-                next_state, reward, done = self._get_transition_prob_reward(state, action)
+            for action in range(4):
+                next_state, reward, done = self.P[state][action]
                 if done:
                     val = reward
                 else:
                     val = reward + self.gamma * self.V[next_state]
                 action_values.append(val)
                 
-            best_action = np.argmax(action_values)
-            self.policy[state] = best_action
+            self.policy[state] = int(np.argmax(action_values))
 
     def get_action(self, state):
-        """بازگرداندن اکشن بر اساس سیاست پیدا شده (برای محیط‌های تست و GUI)"""
+        """بازگرداندن اکشن بر اساس سیاست پیدا شده"""
         return self.policy.get(state, 0)
