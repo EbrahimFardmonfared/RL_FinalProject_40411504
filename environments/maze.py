@@ -25,8 +25,10 @@ class DynamicMazeEnv:
         self.PROB_FORWARD = 0.8
         self.PROB_DRIFT = 0.1
         
-        # مسیر حلقه‌ای مانع متحرک
-        self.patrol_route = [(7, 7), (7, 8), (7, 9), (8, 9), (9, 9), (9, 8), (9, 7), (8, 7)]
+# مسیر گشت‌زنی چالشی: رفت و برگشت افقی در ردیف وسط نقشه برای قطع کردن مسیر عامل
+        row = 7
+        cols = list(range(3, 12)) + list(range(11, 2, -1))
+        self.patrol_route = [(row, c) for c in cols]
         
         self.grid = None
         self._generate_valid_map()
