@@ -12,7 +12,7 @@ class TestDynamicMaze(unittest.TestCase):
     
     def setUp(self):
         """راه‌اندازی محیط پیش از اجرای هر تست"""
-        self.env = DynamicMazeEnv(use_reward_shaping=False)
+        self.env = DynamicMazeEnv()
         
     def test_environment_initialization(self):
         """تست ابعاد نقشه و مقداردهی اولیه عامل"""
