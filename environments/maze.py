@@ -4,7 +4,8 @@ import copy
 from collections import deque
 
 class DynamicMazeEnv:
-    def __init__(self):
+    def __init__(self, use_reward_shaping=False):
+        self.use_reward_shaping = use_reward_shaping
         # تنظیمات پایه بر اساس شماره دانشجویی 40411504
         self.seed = 0
         self.grid_size = 15
@@ -127,55 +128,90 @@ class DynamicMazeEnv:
         return (self.agent_pos[0], self.agent_pos[1], self.has_key, self.patrol_idx)
 
     def step(self, action):
-        """
-        اعمال عمل انتخابی، محاسبه دینامیک انتقال (MDP)، حرکت مانع و محاسبه پاداش.
-        action: 0 (بالا)، 1 (راست)، 2 (پایین)، 3 (چپ)
-        """
-        self.steps += 1
+        r, c = self.agent_pos
         
-        # 1. اعمال عدم قطعیت (احتمال 0.8 جهت اصلی، 0.1 جهت‌های عمود)
-        actual_action = action
+        # 1. پیاده‌سازی عدم قطعیت محیط (Drift 0.8 / 0.1 / 0.1)
+        import random
         rand_val = random.random()
-        if rand_val > self.PROB_FORWARD:
-            if rand_val > self.PROB_FORWARD + self.PROB_DRIFT:
-                actual_action = (action + 1) % 4 # انحراف به راست
-            else:
-                actual_action = (action - 1) % 4 # انحراف به چپ
-                
-        # 2. محاسبه مکان جدید عامل
-        moves = {0: (-1, 0), 1: (0, 1), 2: (1, 0), 3: (0, -1)}
-        dr, dc = moves[actual_action]
-        nr, nc = self.agent_pos[0] + dr, self.agent_pos[1] + dc
+        if rand_val < 0.1:     # 10% انحراف به راست
+            action = (action + 1) % 4
+        elif rand_val < 0.2:   # 10% انحراف به چپ
+            action = (action - 1) % 4
+            
+        # 2. محاسبه مختصات جدید
+        nr, nc = r, c
+        if action == 0:   nr -= 1  # Up
+        elif action == 1: nc += 1  # Right
+        elif action == 2: nr += 1  # Down
+        elif action == 3: nc -= 1  # Left
         
+        # 3. بررسی برخوردها (دیوار، مرزها و در قفل)
         hit_wall = False
+        hit_door_locked = False
         
-        # بررسی برخورد با مرزها، دیوارها یا درِ بسته (بدون کلید)
-        if 0 <= nr < self.grid_size and 0 <= nc < self.grid_size:
-            cell = self.grid[nr, nc]
-            if cell == self.WALL:
-                hit_wall = True
-                nr, nc = self.agent_pos # بازگشت به جای قبلی
-            elif cell == self.DOOR and self.has_key == 0:
-                hit_wall = True
-                nr, nc = self.agent_pos
-        else:
+        if nr < 0 or nr >= self.grid_size or nc < 0 or nc >= self.grid_size:
             hit_wall = True
-            nr, nc = self.agent_pos
+            nr, nc = r, c  # خنثی شدن حرکت
+        elif self.grid[nr, nc] == self.WALL:
+            hit_wall = True
+            nr, nc = r, c
+        elif self.grid[nr, nc] == self.DOOR and not self.has_key:
+            hit_door_locked = True
+            nr, nc = r, c
             
-        self.agent_pos = (nr, nc)
+        self.agent_pos = [nr, nc]
         
-        # 3. حرکت مانع متحرک در مسیر حلقه‌ای
+        # 4. آپدیت وضعیت مانع متحرک
         self.patrol_idx = (self.patrol_idx + 1) % len(self.patrol_route)
-        obstacle_pos = self.patrol_route[self.patrol_idx]
+        obs_r, obs_c = self.patrol_route[self.patrol_idx]
         
-        # 4. بروزرسانی وضعیت کلید
-        if self.agent_pos == self.key_pos:
+        # 5. بررسی وضعیت خانه جدید و برخورد با مانع
+        cell_type = self.grid[nr, nc]
+        hit_penalty = (cell_type == self.PENALTY)
+        hit_obstacle = (self.agent_pos[0] == obs_r and self.agent_pos[1] == obs_c)
+        
+        done = (cell_type == self.GOAL)
+        
+        # 6. محاسبه پاداش پایه و پر کردن دیکشنری info
+        reward = -1  # هزینه هر گام
+        info = {
+            'hit_wall': False, 'hit_penalty': False, 'got_key': False, 
+            'hit_obstacle': False, 'door_locked_bump': False, 
+            'door_passed': False, 'timeout': False
+        }
+
+        if hit_wall:
+            reward = -10
+            info['hit_wall'] = True
+        elif hit_penalty:
+            reward = -20
+            info['hit_penalty'] = True
+        elif hit_obstacle:
+            reward = -50
+            info['hit_obstacle'] = True
+        elif hit_door_locked:
+            info['door_locked_bump'] = True
+        elif cell_type == self.GOAL:
+            reward = 100
+        elif cell_type == self.KEY and not self.has_key:
+            reward = 20  # پاداش کلید برگشت!
             self.has_key = 1
-            
-        # 5. محاسبه پاداش (بسته به نوع پاداش، در اینجا مدل Sparse پایه قرار داده شده است)
-        reward, done = self._calculate_reward_and_done(hit_wall, obstacle_pos)
-        
-        return self._get_state(), reward, done, {}
+            info['got_key'] = True
+        elif cell_type == self.DOOR and self.has_key:
+            info['door_passed'] = True
+
+        # === 7. اعمال Reward Shaping ===
+        if self.use_reward_shaping and not done:
+            # تابع پتانسیل: فاصله منهتن تا هدف (قرینه)
+            phi_current = - (abs(r - 14) + abs(c - 7)) # مختصات هدف (14,7) است
+            phi_next = - (abs(self.agent_pos[0] - 14) + abs(self.agent_pos[1] - 7))
+            gamma = 0.9 # ضریب تخفیف
+            shaping_reward = (gamma * phi_next) - phi_current
+            reward += shaping_reward
+
+        # 8. ساختن حالت بعدی
+        state = (self.agent_pos[0], self.agent_pos[1], self.has_key, self.patrol_idx)
+        return state, reward, done, info
 
     def _calculate_reward_and_done(self, hit_wall, obstacle_pos):
         reward = -1 # هزینه هر حرکت (Step Penalty)
