@@ -1,5 +1,6 @@
-import random
 import numpy as np
+import random
+from collections import defaultdict
 
 class QLearningAgent:
     def __init__(self, env, alpha=0.1, gamma=0.9, epsilon_start=1.0, epsilon_end=0.01, decay_rate=0.995, decay_type='exponential'):
@@ -7,89 +8,74 @@ class QLearningAgent:
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon_start
-        self.epsilon_start = epsilon_start
         self.epsilon_end = epsilon_end
         self.decay_rate = decay_rate
         self.decay_type = decay_type
         
-        # جدول Q به صورت دیکشنری (برای مدیریت راحت‌تر فضای حالت)
-        self.Q = {}
-        
-        # دیکشنری لاگ‌ها برای رسم نمودار و تحلیل در گزارش
-        self.logs = {
-            'rewards': [],
-            'steps': [],
-            'success': [],
-            'wall_hits': [],
-            'penalty_hits': []
-        }
+        # جدول Q به صورت دیکشنری (برای مدیریت فضای حالت 4 بعدی)
+        self.Q = defaultdict(float)
 
     def get_q(self, state, action):
-        """بازگرداندن مقدار Q؛ اگر قبلاً دیده نشده باشد، مقدار اولیه صفر است"""
         return self.Q.get((state, action), 0.0)
 
-    def choose_action(self, state):
-        """انتخاب عمل بر اساس سیاست حریصانه (Epsilon-Greedy)"""
-        if random.random() < self.epsilon:
-            return random.choice([0, 1, 2, 3])
+    def choose_action(self, state, epsilon):
+        """انتخاب عمل با استراتژی Epsilon-Greedy"""
+        if random.uniform(0, 1) < epsilon:
+            return self.env.action_space.sample() # اکتشاف
         else:
-            q_values = [self.get_q(state, a) for a in range(4)]
+            # بهره‌برداری: انتخاب عملی که بیشترین مقدار Q را دارد
+            q_values = [self.get_q(state, a) for a in range(self.env.action_space.n)]
             max_q = max(q_values)
-            # در صورت برابر بودن مقادیر، یکی از بهترین‌ها تصادفی انتخاب می‌شود
-            best_actions = [a for a in range(4) if q_values[a] == max_q]
+            # اگر چند عمل ماکزیمم یکسان داشتند، یکی را تصادفی انتخاب کن
+            best_actions = [a for a in range(self.env.action_space.n) if q_values[a] == max_q]
             return random.choice(best_actions)
 
-    def decay_epsilon(self, current_episode, total_episodes):
-        """کاهش مقدار اپسیلون بر اساس دو روش خواسته شده"""
-        if self.decay_type == 'exponential':
-            self.epsilon = max(self.epsilon_end, self.epsilon * self.decay_rate)
-        elif self.decay_type == 'linear':
-            drop_per_episode = (self.epsilon_start - self.epsilon_end) / total_episodes
-            self.epsilon = max(self.epsilon_end, self.epsilon - drop_per_episode)
-
-    def train(self, episodes=1000, max_steps=500):
-        """اجرای حلقه اصلی آموزش الگوریتم"""
-        for ep in range(episodes):
+    def train(self, episodes=1000):
+        """آموزش عامل با الگوریتم Q-Learning"""
+        rewards = []
+        steps = []
+        wall_hits_list = []
+        penalty_hits_list = []
+        
+        for episode in range(episodes):
             state = self.env.reset()
             total_reward = 0
-            steps = 0
+            step = 0
             wall_hits = 0
             penalty_hits = 0
-            success = 0
+            done = False
             
-            for step in range(max_steps):
-                action = self.choose_action(state)
-                next_state, reward, done, _ = self.env.step(action)
+            while not done:
+                action = self.choose_action(state, self.epsilon)
                 
-                # ثبت رویدادها برای لاگ‌گیری (طبق مقادیر پاداش در محیط)
-                if reward == -10:
+                # *** دریافت info برای شمارش دقیق رویدادها (اصلاح Reward Shaping) ***
+                next_state, reward, done, info = self.env.step(action)
+                
+                # به‌روزرسانی جدول Q (معادله بلمن)
+                best_next_action = np.argmax([self.get_q(next_state, a) for a in range(self.env.action_space.n)])
+                td_target = reward + self.gamma * self.get_q(next_state, best_next_action)
+                td_error = td_target - self.get_q(state, action)
+                self.Q[(state, action)] = self.get_q(state, action) + self.alpha * td_error
+                
+                # *** ثبت رویدادها با استفاده از دیکشنری info به جای مقایسه عددی reward ***
+                if info.get('hit_wall', False):
                     wall_hits += 1
-                elif reward == -20:
+                if info.get('hit_penalty', False):
                     penalty_hits += 1
-                elif reward == 100:
-                    success = 1
                     
-                # فرمول بروزرسانی Q-Learning (Off-policy)
-                best_next_q = max([self.get_q(next_state, a) for a in range(4)])
-                current_q = self.get_q(state, action)
-                self.Q[(state, action)] = current_q + self.alpha * (reward + self.gamma * best_next_q - current_q)
-                
                 state = next_state
                 total_reward += reward
-                steps += 1
+                step += 1
                 
-                if done:
-                    break
-                    
-            # کاهش اپسیلون در انتهای هر اپیزود
-            self.decay_epsilon(ep, episodes)
+            # کاهش اپسیلون بر اساس نوع انتخاب شده
+            if self.decay_type == 'exponential':
+                self.epsilon = max(self.epsilon_end, self.epsilon * self.decay_rate)
+            elif self.decay_type == 'linear':
+                self.epsilon = max(self.epsilon_end, self.epsilon - self.decay_rate)
+                
+            rewards.append(total_reward)
+            steps.append(step)
+            wall_hits_list.append(wall_hits)
+            penalty_hits_list.append(penalty_hits)
             
-            # ذخیره لاگ‌های این اپیزود
-            self.logs['rewards'].append(total_reward)
-            self.logs['steps'].append(steps)
-            self.logs['success'].append(success)
-            self.logs['wall_hits'].append(wall_hits)
-            self.logs['penalty_hits'].append(penalty_hits)
-
-        print(f"Q-Learning ({self.decay_type} decay) completed {episodes} episodes.")
-        return self.logs
+        return rewards, steps, wall_hits_list, penalty_hits_list
