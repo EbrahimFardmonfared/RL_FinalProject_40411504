@@ -62,11 +62,9 @@ def main():
     
     print("Training Value Iteration Agent...")
     vi_agent = ValueIterationAgent(env, gamma=0.9, theta=1e-6)
-    trained_vi = False
     for method in ['train', 'solve', 'value_iteration', 'run', 'optimize']:
         if hasattr(vi_agent, method):
             getattr(vi_agent, method)()
-            trained_vi = True
             break
             
     print("Training Q-Learning Agent...")

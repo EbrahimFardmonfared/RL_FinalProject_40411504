@@ -28,58 +28,65 @@ class MazeRenderer:
         self.font = pygame.font.SysFont('Tahoma', 14, bold=True)
         self.small_font = pygame.font.SysFont('Tahoma', 12, bold=True)
 
-    def draw_state(self, state, x_offset_map=0):
-        """رسم کامل وضعیت فعلی محیط شامل نقشه، مانع متحرک و عامل"""
+    def draw_state(self, state, info=None, policy_map=None):
+        """رسم کامل وضعیت فعلی محیط شامل نقشه، مانع متحرک، عامل و پنل اطلاعات/فلش‌های سیاست"""
+        self.screen.fill((255, 255, 255)) # پاک کردن صفحه برای جلوگیری از صفحه سیاه
+        
         # 1. رسم شبکه‌ی اصلی (دیوارها، جریمه‌ها، کلید، در و هدف)
         for r in range(self.env.grid_size):
             for c in range(self.env.grid_size):
                 cell_rect = pygame.Rect(
-                    x_offset_map + c * self.cell_size, 
+                    c * self.cell_size, 
                     r * self.cell_size, 
                     self.cell_size, 
                     self.cell_size
                 )
                 cell_type = self.env.grid[r, c]
                 
-                # تعیین رنگ خانه‌ها
                 if cell_type == self.env.WALL:
-                    color = (50, 50, 50)        # خاکستری تیره (دیوار)
+                    color = (50, 50, 50)
                 elif cell_type == self.env.PENALTY:
-                    color = (255, 100, 100)    # قرمز روشن (جریمه)
+                    color = (255, 100, 100)
                 elif cell_type == self.env.KEY and not self.env.has_key:
-                    color = (255, 215, 0)      # طلایی (کلید)
+                    color = (255, 215, 0)
                 elif cell_type == self.env.DOOR:
-                    color = (139, 69, 19) if not self.env.has_key else (210, 180, 140) # قهوه‌ای (در)
+                    color = (139, 69, 19) if not self.env.has_key else (210, 180, 140)
                 elif cell_type == self.env.GOAL:
-                    color = (50, 205, 50)       # سبز (هدف)
+                    color = (50, 205, 50)
                 else:
-                    color = (240, 240, 240)     # سفید/خاکستری روشن (خانه عادی)
+                    color = (240, 240, 240)
                     
                 pygame.draw.rect(self.screen, color, cell_rect)
-                pygame.draw.rect(self.screen, (200, 200, 200), cell_rect, 1) # خطوط شبکه
+                pygame.draw.rect(self.screen, (200, 200, 200), cell_rect, 1)
 
-        # 2. === همگام‌سازی 100% مانع با موتور محاسباتی محیط ===
-        # وضعیت مانع متحرک مستقیماً از بعد چهارم State خوانده می‌شود
+        # 2. رسم فلش‌های سیاست (اگر فعال باشد)
+        if policy_map:
+            for (r, c, has_key), action in policy_map.items():
+                if self.env.grid[r, c] != self.env.WALL:
+                    self._draw_arrow(r, c, action)
+
+        # 3. همگام‌سازی مانع متحرک
         if len(state) == 4:
             patrol_idx = state[3]
             pr, pc = self.env.patrol_route[patrol_idx]
-            
-            # رسم مستطیل مانع متحرک (رنگ بنفش)
             patrol_rect = pygame.Rect(
-                x_offset_map + pc * self.cell_size + 4, 
+                pc * self.cell_size + 4, 
                 pr * self.cell_size + 4, 
                 self.cell_size - 8, 
                 self.cell_size - 8
             )
             pygame.draw.rect(self.screen, (128, 0, 128), patrol_rect)
 
-        # 3. رسم موقعیت فعلی عامل (آبی رنگ)
+        # 4. رسم موقعیت عامل
         ar, ac = state[0], state[1]
         agent_center = (
-            x_offset_map + ac * self.cell_size + self.cell_size // 2, 
+            ac * self.cell_size + self.cell_size // 2, 
             ar * self.cell_size + self.cell_size // 2
         )
         pygame.draw.circle(self.screen, (0, 102, 204), agent_center, self.cell_size // 3)
+
+        # 5. به‌روزرسانی نهایی صفحه (حیاتی برای جلوگیری از صفحه سیاه)
+        pygame.display.flip()
 
     def _draw_arrow(self, r, c, action, x_offset_map=0):
         # پیدا کردن مرکز هر خانه در رابط گرافیکی
