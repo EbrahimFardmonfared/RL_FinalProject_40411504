@@ -17,9 +17,17 @@ def save_logs_to_csv(scenario_name, env_type, logs):
     
     with open(file_path, mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['Episode', 'Reward', 'Success'])
+        # اضافه کردن ستون‌های گام‌ها، برخورد با دیوار و جریمه‌ها طبق خواسته داکیومنت
+        writer.writerow(['Episode', 'Reward', 'Success', 'Steps', 'Wall_Hits', 'Penalty_Hits'])
         for ep in range(len(logs['rewards'])):
-            writer.writerow([ep+1, logs['rewards'][ep], logs['success'][ep]])
+            writer.writerow([
+                ep + 1, 
+                logs['rewards'][ep], 
+                logs['success'][ep],
+                logs['steps'][ep],
+                logs['wall_hits'][ep],
+                logs['penalty_hits'][ep]
+            ])
 
 def evaluate_logs(scenario_name, env_type, logs):
     """Helper function to print performance summary and save to CSV"""
