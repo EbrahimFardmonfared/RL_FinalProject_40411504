@@ -54,6 +54,6 @@ class TestDynamicMaze(unittest.TestCase):
         updated_q = agent.get_q(state, action)
         
         self.assertEqual(updated_q, -0.1, "Q-value was not updated correctly based on the Bellman equation.")
-
+ 
 if __name__ == '__main__':
     unittest.main()
