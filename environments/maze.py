@@ -25,10 +25,11 @@ class DynamicMazeEnv:
         self.PROB_FORWARD = 0.8
         self.PROB_DRIFT = 0.1
         
-# مسیر گشت‌زنی چالشی: رفت و برگشت افقی در ردیف وسط نقشه برای قطع کردن مسیر عامل
-        row = 7
-        cols = list(range(3, 12)) + list(range(11, 2, -1))
-        self.patrol_route = [(row, c) for c in cols]
+        # مسیر گشت‌زنی دوبعدی و موجی (حرکت ترکیبی افقی و عمودی که هم بالا/پایین می‌رود و هم حس حرکت پویا/رندوم دارد)
+        self.patrol_route = [
+            (7, 3), (6, 4), (5, 5), (6, 6), (7, 7), (8, 8), (9, 9), (8, 10), (7, 11),
+            (6, 11), (5, 10), (6, 9), (7, 8), (8, 7), (9, 6), (8, 5), (7, 4)
+        ]
         
         self.grid = None
         self._generate_valid_map()
