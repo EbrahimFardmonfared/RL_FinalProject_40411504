@@ -24,7 +24,7 @@ class DynamicMazeEnv:
         
         # مسیر حلقه‌ای مانع متحرک (مختصات فرضی که در نقشه خالی خواهند بود)
         self.patrol_route = [(7, 7), (7, 8), (7, 9), (8, 9), (9, 9), (9, 8), (9, 7), (8, 7)]
-        
+         
         # تولید و اعتبارسنجی نقشه
         self.grid = None
         self._generate_valid_map()
