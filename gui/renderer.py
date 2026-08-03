@@ -28,82 +28,80 @@ class MazeRenderer:
         self.font = pygame.font.SysFont('Tahoma', 14, bold=True)
         self.small_font = pygame.font.SysFont('Tahoma', 12, bold=True)
 
-    def draw_state(self, state, info_dict, policy=None):
-        self.screen.fill(self.COLORS['bg'])
-        agent_r, agent_c = state[0], state[1]
-        has_key = state[2]
-        
-        x_offset_map = (self.window_width - self.width) // 2
-        
+    def draw_state(self, state, x_offset_map=0):
+        """رسم کامل وضعیت فعلی محیط شامل نقشه، مانع متحرک و عامل"""
+        # 1. رسم شبکه‌ی اصلی (دیوارها، جریمه‌ها، کلید، در و هدف)
         for r in range(self.env.grid_size):
             for c in range(self.env.grid_size):
-                rect = pygame.Rect(x_offset_map + c * self.cell_size, r * self.cell_size, self.cell_size, self.cell_size)
+                cell_rect = pygame.Rect(
+                    x_offset_map + c * self.cell_size, 
+                    r * self.cell_size, 
+                    self.cell_size, 
+                    self.cell_size
+                )
                 cell_type = self.env.grid[r, c]
                 
-                color = self.COLORS['empty']
+                # تعیین رنگ خانه‌ها
                 if cell_type == self.env.WALL:
-                    color = self.COLORS['wall']
+                    color = (50, 50, 50)        # خاکستری تیره (دیوار)
                 elif cell_type == self.env.PENALTY:
-                    color = self.COLORS['penalty']
-                elif cell_type == self.env.KEY and not has_key:
-                    color = self.COLORS['key']
+                    color = (255, 100, 100)    # قرمز روشن (جریمه)
+                elif cell_type == self.env.KEY and not self.env.has_key:
+                    color = (255, 215, 0)      # طلایی (کلید)
                 elif cell_type == self.env.DOOR:
-                    color = self.COLORS['empty'] if has_key else self.COLORS['door']
+                    color = (139, 69, 19) if not self.env.has_key else (210, 180, 140) # قهوه‌ای (در)
                 elif cell_type == self.env.GOAL:
-                    color = self.COLORS['goal']
+                    color = (50, 205, 50)       # سبز (هدف)
+                else:
+                    color = (240, 240, 240)     # سفید/خاکستری روشن (خانه عادی)
                     
-                pygame.draw.rect(self.screen, color, rect)
-                pygame.draw.rect(self.screen, (180, 180, 180), rect, 1)
+                pygame.draw.rect(self.screen, color, cell_rect)
+                pygame.draw.rect(self.screen, (200, 200, 200), cell_rect, 1) # خطوط شبکه
 
-                if cell_type == self.env.KEY and not has_key:
-                    pygame.draw.circle(self.screen, (200, 150, 0), rect.center, self.cell_size // 3)
-                    pygame.draw.circle(self.screen, (0, 0, 0), rect.center, self.cell_size // 3, 1)
-                    k_text = self.small_font.render("K", True, (0, 0, 0))
-                    self.screen.blit(k_text, (rect.centerx - 5, rect.centery - 8))
-
-                if policy and cell_type not in [self.env.WALL, self.env.GOAL]:
-                    best_a = policy.get(((r, c, has_key)), None)
-                    if best_a is not None:
-                        self._draw_arrow(r, c, best_a, x_offset_map)
-
-        if hasattr(self.env, 'patrol_route') and self.env.patrol_route:
-            step = info_dict.get('step', 0)
-            route_len = len(self.env.patrol_route)
+        # 2. === همگام‌سازی 100% مانع با موتور محاسباتی محیط ===
+        # وضعیت مانع متحرک مستقیماً از بعد چهارم State خوانده می‌شود
+        if len(state) == 4:
+            patrol_idx = state[3]
+            pr, pc = self.env.patrol_route[patrol_idx]
             
-            if route_len > 1:
-                idx = step % ((route_len - 1) * 2)
-                if idx >= route_len:
-                    idx = (route_len - 1) * 2 - idx
-            else:
-                idx = 0
-                
-            pr, pc = self.env.patrol_route[idx]
-            patrol_rect = pygame.Rect(x_offset_map + pc * self.cell_size + 4, pr * self.cell_size + 4, self.cell_size - 8, self.cell_size - 8)
-            pygame.draw.rect(self.screen, self.COLORS['patrol'], patrol_rect)
-            pygame.draw.rect(self.screen, (0, 0, 0), patrol_rect, 1)
+            # رسم مستطیل مانع متحرک (رنگ بنفش)
+            patrol_rect = pygame.Rect(
+                x_offset_map + pc * self.cell_size + 4, 
+                pr * self.cell_size + 4, 
+                self.cell_size - 8, 
+                self.cell_size - 8
+            )
+            pygame.draw.rect(self.screen, (128, 0, 128), patrol_rect)
 
-        agent_rect = pygame.Rect(x_offset_map + agent_c * self.cell_size + 3, agent_r * self.cell_size + 3, self.cell_size - 6, self.cell_size - 6)
-        pygame.draw.ellipse(self.screen, self.COLORS['agent'], agent_rect)
-        pygame.draw.ellipse(self.screen, (0, 0, 0), agent_rect, 1) 
-        
-        self._draw_info(info_dict)
-        pygame.display.flip()
+        # 3. رسم موقعیت فعلی عامل (آبی رنگ)
+        ar, ac = state[0], state[1]
+        agent_center = (
+            x_offset_map + ac * self.cell_size + self.cell_size // 2, 
+            ar * self.cell_size + self.cell_size // 2
+        )
+        pygame.draw.circle(self.screen, (0, 102, 204), agent_center, self.cell_size // 3)
 
-    def _draw_arrow(self, r, c, action, x_offset_map):
-        center = (x_offset_map + c * self.cell_size + self.cell_size//2, r * self.cell_size + self.cell_size//2)
-        color = (100, 100, 100)
+    def _draw_arrow(self, r, c, action, x_offset_map=0):
+        # پیدا کردن مرکز هر خانه در رابط گرافیکی
+        center = (x_offset_map + c * self.cell_size + self.cell_size//2, 
+                  r * self.cell_size + self.cell_size//2)
+        color = (100, 100, 100) # رنگ خاکستری برای فلش‌ها
         offset = self.cell_size // 3
+        
+        # نگاشت صحیح بر اساس موتور محیط: 
+        # 0: بالا، 1: راست، 2: پایین، 3: چپ
         if action == 0:   
             end = (center[0], center[1] - offset)
         elif action == 1: 
-            end = (center[0], center[1] + offset)
-        elif action == 2: 
-            end = (center[0] - offset, center[1])
-        else:             
             end = (center[0] + offset, center[1])
+        elif action == 2: 
+            end = (center[0], center[1] + offset)
+        elif action == 3: 
+            end = (center[0] - offset, center[1])
+        
         pygame.draw.line(self.screen, color, center, end, 2)
         pygame.draw.circle(self.screen, color, end, 2)
-
+        
     def _draw_info(self, info_dict):
         y_base = self.env.grid_size * self.cell_size + 15
         x_left = 20
