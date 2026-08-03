@@ -13,33 +13,34 @@ from agents.value_iteration import ValueIterationAgent
 from gui.renderer import MazeRenderer
 
 def get_agent_policy(env, agent, algo_name):
-    """استخراج امن سیاست برای جلوگیری از خطای ترسیم فلش‌ها"""
+    """استخراج امن سیاست برای نمایش بصری روی نقشه (با لحاظ کردن فضای حالت ۴بعدی)"""
     policy = {}
+    default_p = 0 # استفاده از برش پایه مانع متحرک برای نمایش دوبعدی سیاست
     for r in range(env.grid_size):
         for c in range(env.grid_size):
             if env.grid[r, c] == env.WALL:
                 continue
             for has_key in [0, 1]:
-                state = (r, c, has_key)
+                state = (r, c, has_key, default_p)
                 if algo_name == 'Value Iteration':
                     if hasattr(agent, 'get_action'):
-                        policy[state] = agent.get_action(state)
+                        policy[(r, c, has_key)] = agent.get_action(state)
                     elif hasattr(agent, 'policy') and isinstance(agent.policy, dict):
-                        policy[state] = agent.policy.get(state, 0)
+                        policy[(r, c, has_key)] = agent.policy.get(state, 0)
                 else:
                     q_values = [agent.get_q(state, a) for a in range(4)]
                     if any(q != 0 for q in q_values):
                         best_a = q_values.index(max(q_values))
-                        policy[state] = best_a
+                        policy[(r, c, has_key)] = best_a
     return policy
 
 def get_action_safely(agent, algo_name, state):
-    """دریافت امن عمل برای جلوگیری از گیر کردن عامل (چپ و راست رفتن)"""
+    """دریافت امن عمل برای جلوگیری از خطای عامل"""
     if algo_name == 'Value Iteration':
         if hasattr(agent, 'get_action'):
             return agent.get_action(state)
         elif hasattr(agent, 'policy') and isinstance(agent.policy, dict):
-            return agent.policy.get(state, 0) # در صورت نبود کلید، بالا (0) را برمی‌گرداند
+            return agent.policy.get(state, 0)
         return 0 
     else:
         q_values = [agent.get_q(state, a) for a in range(4)]
@@ -61,16 +62,13 @@ def main():
     
     print("Training Value Iteration Agent...")
     vi_agent = ValueIterationAgent(env, gamma=0.9, theta=1e-6)
-    # سیستم هوشمند برای پیدا کردن و اجرای حتمی تابع آموزش Value Iteration
     trained_vi = False
     for method in ['train', 'solve', 'value_iteration', 'run', 'optimize']:
         if hasattr(vi_agent, method):
             getattr(vi_agent, method)()
             trained_vi = True
             break
-    if not trained_vi:
-        print("Warning: Could not automatically start Value Iteration training!")
-
+            
     print("Training Q-Learning Agent...")
     ql_agent = QLearningAgent(env, decay_type='exponential')
     ql_agent.train(episodes=400)
