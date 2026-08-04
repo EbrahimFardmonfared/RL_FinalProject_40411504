@@ -1,7 +1,7 @@
+import pygame
 import sys
 import os
-import pygame
-import time
+import numpy as np
 
 # اضافه کردن مسیر ریشه پروژه
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -10,157 +10,177 @@ from environments.maze import DynamicMazeEnv
 from agents.q_learning import QLearningAgent
 from agents.sarsa_lambda import SarsaLambdaAgent
 from agents.value_iteration import ValueIterationAgent
-from gui.renderer import MazeRenderer
+from gui.renderer import Renderer
 
-def get_agent_policy(env, agent, algo_name):
-    """استخراج امن سیاست برای نمایش بصری روی نقشه (با لحاظ کردن فضای حالت ۴بعدی)"""
-    policy = {}
-    default_p = 0 # استفاده از برش پایه مانع متحرک برای نمایش دوبعدی سیاست
-    for r in range(env.grid_size):
-        for c in range(env.grid_size):
-            if env.grid[r, c] == env.WALL:
-                continue
-            for has_key in [0, 1]:
-                state = (r, c, has_key, default_p)
-                if algo_name == 'Value Iteration':
-                    if hasattr(agent, 'get_action'):
-                        policy[(r, c, has_key)] = agent.get_action(state)
-                    elif hasattr(agent, 'policy') and isinstance(agent.policy, dict):
-                        policy[(r, c, has_key)] = agent.policy.get(state, 0)
-                else:
-                    q_values = [agent.get_q(state, a) for a in range(4)]
-                    if any(q != 0 for q in q_values):
-                        best_a = q_values.index(max(q_values))
-                        policy[(r, c, has_key)] = best_a
-    return policy
-
-def get_action_safely(agent, algo_name, state):
-    """دریافت امن عمل برای جلوگیری از خطای عامل"""
-    if algo_name == 'Value Iteration':
-        if hasattr(agent, 'get_action'):
-            return agent.get_action(state)
-        elif hasattr(agent, 'policy') and isinstance(agent.policy, dict):
-            return agent.policy.get(state, 0)
-        return 0 
-    else:
-        q_values = [agent.get_q(state, a) for a in range(4)]
-        best_actions = [a for a in range(4) if q_values[a] == max(q_values)]
-        return best_actions[0] if best_actions else 0
-
-def main():
-    env = DynamicMazeEnv()
-    renderer = MazeRenderer(env, cell_size=30)
-    
-    state = env.reset()
-    loading_info = {
-        'episode': 0, 'step': 0, 'reward': 0, 'key': 0,
-        'status': "Training All Agents... Please wait!",
-        'algorithm': "Initializing..."
-    }
-    renderer.draw_state(state, loading_info, None)
-    pygame.event.pump() 
-    
-    print("Training Value Iteration Agent...")
-    vi_agent = ValueIterationAgent(env, gamma=0.9, theta=1e-6)
-    for method in ['train', 'solve', 'value_iteration', 'run', 'optimize']:
-        if hasattr(vi_agent, method):
-            getattr(vi_agent, method)()
-            break
+class MazeApp:
+    def __init__(self):
+        pygame.init()
+        self.fps = 10
+        self.running = True
+        self.paused = False
+        self.show_policy = False
+        
+        self.env_type = 'Source'
+        self.algo_name = 'Q-Learning'
+        self.mode = 'Train'
+        
+        self.recent_successes = []
+        self.episode = 1
+        self.step_count = 0
+        self.ep_reward = 0
+        
+        self.setup_env_and_agent()
+        self.renderer = Renderer(self.env)
+        
+    def setup_env_and_agent(self):
+        """راه‌اندازی محیط و عامل بر اساس انتخاب‌های کاربر در رابط کاربری"""
+        self.env = DynamicMazeEnv(use_reward_shaping=False)
+        if self.env_type == 'Similar' and hasattr(self.env, 'generate_similar_map'):
+            self.env.generate_similar_map()
+        elif self.env_type == 'Different' and hasattr(self.env, 'generate_different_map'):
+            self.env.generate_different_map()
             
-    print("Training Q-Learning Agent...")
-    ql_agent = QLearningAgent(env, decay_type='exponential')
-    ql_agent.train(episodes=400)
-    
-    print("Training SARSA Agent...")
-    sarsa_agent = SarsaLambdaAgent(env, lmbda=0.9, trace_type='replacing')
-    sarsa_agent.train(episodes=400)
-    
-    algo_names = ['Q-Learning', 'SARSA(lambda=0.9)', 'Value Iteration']
-    agents_dict = {
-        'Q-Learning': ql_agent,
-        'SARSA(lambda=0.9)': sarsa_agent,
-        'Value Iteration': vi_agent
-    }
-    
-    current_idx = 0
-    current_algo_name = algo_names[current_idx]
-    current_agent = agents_dict[current_algo_name]
-    policy_dict = get_agent_policy(env, current_agent, current_algo_name)
-    
-    running = True
-    paused = False
-    show_policy = False
-    delay = 0.15 
-    
-    episode = 1
-    state = env.reset()
-    step = 0
-    total_reward = 0
-    status = "Running"
-    
-    print("Training Complete! Starting visualization.")
-    
-    while running:
+        if self.algo_name == 'Q-Learning':
+            self.agent = QLearningAgent(self.env)
+        elif self.algo_name == 'SARSA':
+            self.agent = SarsaLambdaAgent(self.env)
+        else:
+            self.agent = ValueIterationAgent(self.env)
+            print("Computing Value Iteration Optimal Policy... Please wait.")
+            self.agent.run()
+            print("Value Iteration Converged!")
+            
+        self.reset_episode()
+        self.recent_successes = []
+        self.episode = 1
+
+    def reset_episode(self):
+        self.state = self.env.reset()
+        self.step_count = 0
+        self.ep_reward = 0
+        if hasattr(self.agent, 'E'):
+            self.agent.E.clear()
+        self.current_action = self.get_action_for_state(self.state)
+
+    def get_epsilon(self):
+        if self.mode == 'Eval' or self.algo_name == 'Value Iteration':
+            return 0.0
+        return getattr(self.agent, 'epsilon', 0.0)
+
+    def get_action_for_state(self, state):
+        if hasattr(self.agent, 'choose_action'):
+            return self.agent.choose_action(state, self.get_epsilon())
+        return self.agent.get_action(state)
+
+    def handle_events(self):
+        """مدیریت کلیدهای میانبر"""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                running = False
+                self.running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
-                    paused = not paused
-                    status = "Paused" if paused else "Running"
+                    self.paused = not self.paused
                 elif event.key == pygame.K_r:
-                    state = env.reset()
-                    step = 0
-                    total_reward = 0
-                    status = "Running"
+                    self.reset_episode()
                 elif event.key == pygame.K_p:
-                    show_policy = not show_policy  
-                elif event.key == pygame.K_a: 
-                    current_idx = (current_idx + 1) % 3
-                    current_algo_name = algo_names[current_idx]
-                    current_agent = agents_dict[current_algo_name]
-                    policy_dict = get_agent_policy(env, current_agent, current_algo_name)
-                    state = env.reset()
-                    step = 0
-                    total_reward = 0
-                    status = "Running"
+                    self.show_policy = not self.show_policy
+                elif event.key == pygame.K_m:
+                    self.mode = 'Eval' if self.mode == 'Train' else 'Train'
+                    print(f"Mode changed to: {self.mode}")
                 elif event.key == pygame.K_UP:
-                    delay = max(0.01, delay - 0.05) 
+                    self.fps = min(120, self.fps + 5)
                 elif event.key == pygame.K_DOWN:
-                    delay = min(0.5, delay + 0.05)  
+                    self.fps = max(1, self.fps - 5)
+                elif event.key == pygame.K_1:
+                    print("Environment changed to: Source"); self.env_type = 'Source'; self.setup_env_and_agent()
+                elif event.key == pygame.K_2:
+                    print("Environment changed to: Similar"); self.env_type = 'Similar'; self.setup_env_and_agent()
+                elif event.key == pygame.K_3:
+                    print("Environment changed to: Different"); self.env_type = 'Different'; self.setup_env_and_agent()
+                elif event.key == pygame.K_q:
+                    print("Algorithm changed to: Q-Learning"); self.algo_name = 'Q-Learning'; self.setup_env_and_agent()
+                elif event.key == pygame.K_s:
+                    print("Algorithm changed to: SARSA"); self.algo_name = 'SARSA'; self.setup_env_and_agent()
+                elif event.key == pygame.K_v:
+                    print("Algorithm changed to: Value Iteration"); self.algo_name = 'Value Iteration'; self.setup_env_and_agent()
+
+    def step(self):
+        if self.paused:
+            return
+
+        action = self.current_action
+        next_state, reward, done, info = self.env.step(action)
+        self.step_count += 1
+        self.ep_reward += reward
         
-        if not paused and status not in ["Paused", "Goal Reached!", "Failed"]:
-            action = get_action_safely(current_agent, current_algo_name, state)
-            next_state, reward, done, _ = env.step(action)
-            
-            state = next_state
-            step += 1
-            total_reward += reward
-            
-            if done:
-                status = "Goal Reached!" if reward > 0 else "Failed"
+        if self.mode == 'Train':
+            if self.algo_name == 'Q-Learning':
+                best_next = np.argmax([self.agent.get_q(next_state, a) for a in range(4)])
+                td_target = reward + self.agent.gamma * self.agent.get_q(next_state, best_next)
+                td_error = td_target - self.agent.get_q(self.state, action)
+                self.agent.Q[(self.state, action)] += self.agent.alpha * td_error
                 
-        info = {
-            'episode': episode,
-            'step': step,
-            'reward': total_reward,
-            'key': state[2],
-            'status': status,
-            'algorithm': current_algo_name
-        }
-        
-        renderer.draw_state(state, info, policy_dict if show_policy else None)
-        time.sleep(delay)
-        
-        if status in ["Goal Reached!", "Failed"] and not paused:
-            time.sleep(1.5)
-            episode += 1
-            state = env.reset()
-            step = 0
-            total_reward = 0
-            status = "Running"
+            elif self.algo_name == 'SARSA':
+                next_action = self.get_action_for_state(next_state)
+                td_target = reward + self.agent.gamma * self.agent.get_q(next_state, next_action)
+                td_error = td_target - self.agent.get_q(self.state, action)
+                
+                if getattr(self.agent, 'trace_type', 'replacing') == 'accumulating':
+                    self.agent.E[(self.state, action)] = self.agent.E.get((self.state, action), 0.0) + 1.0
+                else:
+                    self.agent.E[(self.state, action)] = 1.0
+                    
+                for (s, a) in list(self.agent.E.keys()):
+                    self.agent.Q[(s, a)] += self.agent.alpha * td_error * self.agent.E[(s, a)]
+                    self.agent.E[(s, a)] *= self.agent.gamma * self.agent.lmbda
+                    if self.agent.E[(s, a)] < 1e-4:
+                        del self.agent.E[(s, a)]
+                self.current_action = next_action
 
-    pygame.quit()
+        if done or self.step_count >= 500:
+            is_success = 1 if self.step_count < 500 and reward > 0 else 0
+            self.recent_successes.append(is_success)
+            if len(self.recent_successes) > 100:
+                self.recent_successes.pop(0)
+            
+            if self.mode == 'Train' and hasattr(self.agent, 'decay_type'):
+                if self.agent.decay_type == 'exponential':
+                    self.agent.epsilon = max(self.agent.epsilon_end, self.agent.epsilon * self.agent.decay_rate)
+                else:
+                    self.agent.epsilon = max(self.agent.epsilon_end, self.agent.epsilon - self.agent.decay_rate)
+            
+            self.episode += 1
+            self.reset_episode()
+        else:
+            self.state = next_state
+            if self.algo_name == 'Q-Learning' or self.mode == 'Eval' or self.algo_name == 'Value Iteration':
+                self.current_action = self.get_action_for_state(self.state)
 
-if __name__ == "__main__":
-    main()
+    def run(self):
+        clock = pygame.time.Clock()
+        while self.running:
+            self.handle_events()
+            self.step()
+            
+            success_rate = (sum(self.recent_successes) / len(self.recent_successes) * 100) if self.recent_successes else 0.0
+            
+            stats = {
+                'Mode': self.mode,
+                'Algorithm': self.algo_name,
+                'Environment': self.env_type,
+                'Episode': self.episode,
+                'Step': self.step_count,
+                'Reward': round(self.ep_reward, 2),
+                'Epsilon': round(self.get_epsilon(), 3),
+                'Success Rate': f"{success_rate:.1f}%",
+                'Has Key': 'Yes' if self.env.has_key else 'No',
+                'FPS': self.fps
+            }
+            
+            self.renderer.render(self.env, self.agent, stats, self.show_policy)
+            clock.tick(self.fps)
+        pygame.quit()
+
+if __name__ == '__main__':
+    app = MazeApp()
+    app.run()

@@ -1,178 +1,156 @@
 import pygame
-import sys
+import numpy as np
 
-# پالت رنگی استاندارد
-COLORS = {
-    "background": (248, 249, 250),
-    "wall": (45, 52, 54),
-    "penalty": (235, 77, 75),
-    "key": (241, 196, 15),
-    "door_locked": (140, 85, 45),
-    "door_open": (248, 249, 250),
-    "goal": (46, 204, 113),
-    "path": (255, 255, 255),
-    "grid_line": (220, 224, 230),
-    "obstacle": (142, 68, 173),
-    "agent": (41, 128, 185),
-    "arrow": (110, 110, 110),
-    "panel_bg": (234, 238, 242),
-    "panel_border": (189, 195, 199),
-    "text_dark": (40, 40, 40),
-    "text_gray": (70, 80, 90),
-    "text_blue": (41, 128, 185),
-    "text_green": (39, 174, 96),
-    "text_red": (192, 57, 43)
-}
-
-class MazeRenderer:
-    def __init__(self, env, cell_size=30):
-        self.env = env
+class Renderer:
+    def __init__(self, env, cell_size=30): # سایز از 40 به 30 کاهش یافت
         self.cell_size = cell_size
+        self.grid_size = env.grid_size
+        self.width = self.grid_size * self.cell_size
+        self.dashboard_height = 200 # ارتفاع داشبورد کمتر شد
+        self.height = self.width + self.dashboard_height
         
-        self.map_width = env.grid_size * cell_size
-        self.map_height = env.grid_size * cell_size
-        
-        self.panel_height = 230 
-        
-        self.width = max(self.map_width, 500) 
-        self.height = self.map_height + self.panel_height
-        
-        # محاسبه فاصله افقی برای قرار دادن نقشه دقیقاً در وسط صفحه
-        self.offset_x = (self.width - self.map_width) // 2
-        
-        pygame.init()
         self.screen = pygame.display.set_mode((self.width, self.height))
-        pygame.display.set_caption("Dynamic Maze RL - Centered Visualizer")
+        pygame.display.set_caption("RL Dynamic Maze Dashboard")
+        self.font = pygame.font.SysFont('Arial', 16, bold=True)
+        self.small_font = pygame.font.SysFont('Arial', 13)
         
-        self._init_fonts()
+        self.colors = {
+            'empty': (240, 240, 240),
+            'wall': (40, 40, 40),
+            'penalty': (200, 50, 50),
+            'agent': (50, 150, 250),
+            'key': (255, 215, 0),
+            'door_locked': (139, 69, 19),
+            'door_open': (160, 160, 160),
+            'goal': (50, 200, 50),
+            'obstacle': (255, 100, 0),
+            'bg': (20, 20, 30),
+            'text': (220, 220, 220)
+        }
 
-    def _init_fonts(self):
-        try:
-            self.font_main = pygame.font.SysFont("Arial", 14)
-            self.font_bold = pygame.font.SysFont("Arial", 14, bold=True)
-            self.font_title = pygame.font.SysFont("Arial", 15, bold=True)
-            self.font_key = pygame.font.SysFont("Arial", 16, bold=True)
-        except:
-            self.font_main = pygame.font.Font(None, 22)
-            self.font_bold = pygame.font.Font(None, 22)
-            self.font_title = pygame.font.Font(None, 24)
-            self.font_key = pygame.font.Font(None, 24)
-
-    def _get_cell_color(self, cell_type):
-        if cell_type == self.env.WALL: return COLORS["wall"]
-        if cell_type == self.env.PENALTY: return COLORS["penalty"]
-        if cell_type == self.env.GOAL: return COLORS["goal"]
-        if cell_type == self.env.KEY and not self.env.has_key: return COLORS["key"]
-        if cell_type == self.env.DOOR: return COLORS["door_open"] if self.env.has_key else COLORS["door_locked"]
-        return COLORS["path"]
-
-    def _draw_grid(self):
-        for r in range(self.env.grid_size):
-            for c in range(self.env.grid_size):
-                # اضافه شدن offset_x برای وسط‌چین کردن خانه‌ها
-                rect = pygame.Rect(self.offset_x + c * self.cell_size, r * self.cell_size, self.cell_size, self.cell_size)
-                cell_type = self.env.grid[r, c]
+    def draw_grid(self, env):
+        for r in range(self.grid_size):
+            for c in range(self.grid_size):
+                cell = env.grid[r, c]
+                rect = pygame.Rect(c * self.cell_size, r * self.cell_size, self.cell_size, self.cell_size)
                 
-                pygame.draw.rect(self.screen, self._get_cell_color(cell_type), rect)
-                pygame.draw.rect(self.screen, COLORS["grid_line"], rect, 1)
-
-                if cell_type == self.env.KEY and not self.env.has_key:
-                    key_surf = self.font_key.render("K", True, COLORS["text_dark"])
-                    key_rect = key_surf.get_rect(center=rect.center)
-                    self.screen.blit(key_surf, key_rect)
-
-    def _draw_policy_arrows(self, policy_map):
-        if not policy_map: return
-        offset = self.cell_size // 3
-        for (r, c, has_key), action in policy_map.items():
-            if self.env.grid[r, c] == self.env.WALL: continue
+                color = self.colors['empty']
+                if cell == env.WALL: color = self.colors['wall']
+                elif cell == env.PENALTY: color = self.colors['penalty']
+                
+                pygame.draw.rect(self.screen, color, rect)
+                pygame.draw.rect(self.screen, (200, 200, 200), rect, 1)
+                
+        # هدف
+        goal_rect = pygame.Rect(env.goal_pos[1]*self.cell_size, env.goal_pos[0]*self.cell_size, self.cell_size, self.cell_size)
+        pygame.draw.rect(self.screen, self.colors['goal'], goal_rect)
+        
+        # کلید
+        if not env.has_key:
+            key_rect = pygame.Rect(env.key_pos[1]*self.cell_size+6, env.key_pos[0]*self.cell_size+6, self.cell_size-12, self.cell_size-12)
+            pygame.draw.ellipse(self.screen, self.colors['key'], key_rect)
             
-            # وسط‌چین شدن فلش‌ها
-            center = (self.offset_x + c * self.cell_size + self.cell_size // 2, r * self.cell_size + self.cell_size // 2)
-            end = center
-            if action == 0:   end = (center[0], center[1] - offset)
-            elif action == 1: end = (center[0] + offset, center[1])
-            elif action == 2: end = (center[0], center[1] + offset)
-            elif action == 3: end = (center[0] - offset, center[1])
-            
-            pygame.draw.line(self.screen, COLORS["arrow"], center, end, 2)
-            pygame.draw.circle(self.screen, COLORS["arrow"], end, 2)
-
-    def _draw_dynamic_obstacle(self, state):
-        if len(state) >= 4:
-            patrol_idx = state[3]
-            pr, pc = self.env.patrol_route[patrol_idx]
-            # وسط‌چین شدن مانع
-            rect = pygame.Rect(self.offset_x + pc * self.cell_size + 4, pr * self.cell_size + 4, self.cell_size - 8, self.cell_size - 8)
-            pygame.draw.rect(self.screen, COLORS["obstacle"], rect)
-
-    def _draw_agent(self, state):
-        ar, ac = state[0], state[1]
-        # وسط‌چین شدن عامل
-        center = (self.offset_x + ac * self.cell_size + self.cell_size // 2, ar * self.cell_size + self.cell_size // 2)
-        pygame.draw.circle(self.screen, COLORS["agent"], center, self.cell_size // 3)
-
-    def _draw_dashboard(self, info):
-        panel_y = self.map_height
+        # در
+        door_color = self.colors['door_open'] if env.has_key else self.colors['door_locked']
+        door_rect = pygame.Rect(env.door_pos[1]*self.cell_size, env.door_pos[0]*self.cell_size, self.cell_size, self.cell_size)
+        pygame.draw.rect(self.screen, door_color, door_rect)
         
-        pygame.draw.rect(self.screen, COLORS["panel_bg"], (0, panel_y, self.width, self.panel_height))
-        pygame.draw.line(self.screen, COLORS["panel_border"], (0, panel_y), (self.width, panel_y), 2)
+        # مانع
+        obs_pos = env.patrol_route[env.patrol_idx]
+        obs_rect = pygame.Rect(obs_pos[1]*self.cell_size+4, obs_pos[0]*self.cell_size+4, self.cell_size-8, self.cell_size-8)
+        pygame.draw.rect(self.screen, self.colors['obstacle'], obs_rect)
+        
+        # عامل
+        agent_rect = pygame.Rect(env.agent_pos[1]*self.cell_size+5, env.agent_pos[0]*self.cell_size+5, self.cell_size-10, self.cell_size-10)
+        pygame.draw.ellipse(self.screen, self.colors['agent'], agent_rect)
 
-        x_offset = 20
-        y_offset = panel_y + 15
+    def draw_arrow(self, cx, cy, direction, length):
+        """رسم فلش واقعی (خط + مثلث نوک پیکان)"""
+        color = (0, 0, 0)
+        if direction == 0: # بالا
+            end = (cx, cy - length)
+            pygame.draw.line(self.screen, color, (cx, cy), end, 2)
+            pygame.draw.polygon(self.screen, color, [(cx, cy - length - 3), (cx - 4, cy - length + 4), (cx + 4, cy - length + 4)])
+        elif direction == 1: # راست
+            end = (cx + length, cy)
+            pygame.draw.line(self.screen, color, (cx, cy), end, 2)
+            pygame.draw.polygon(self.screen, color, [(cx + length + 3, cy), (cx + length - 4, cy - 4), (cx + length - 4, cy + 4)])
+        elif direction == 2: # پایین
+            end = (cx, cy + length)
+            pygame.draw.line(self.screen, color, (cx, cy), end, 2)
+            pygame.draw.polygon(self.screen, color, [(cx, cy + length + 3), (cx - 4, cy + length - 4), (cx + 4, cy + length - 4)])
+        elif direction == 3: # چپ
+            end = (cx - length, cy)
+            pygame.draw.line(self.screen, color, (cx, cy), end, 2)
+            pygame.draw.polygon(self.screen, color, [(cx - length - 3, cy), (cx - length + 4, cy - 4), (cx - length + 4, cy + 4)])
+
+    def draw_policy(self, env, agent):
+        for r in range(self.grid_size):
+            for c in range(self.grid_size):
+                if env.grid[r, c] == env.WALL:
+                    continue
+                state = (r, c, int(env.has_key), env.patrol_idx)
+                
+                if hasattr(agent, 'get_q'):
+                    q_vals = [agent.get_q(state, a) for a in range(4)]
+                    if all(q == 0 for q in q_vals): continue
+                    best_a = np.argmax(q_vals)
+                elif hasattr(agent, 'get_action'):
+                    best_a = agent.get_action(state)
+                else:
+                    continue
+                    
+                cx = c * self.cell_size + self.cell_size//2
+                cy = r * self.cell_size + self.cell_size//2
+                length = self.cell_size // 3
+                
+                self.draw_arrow(cx, cy, best_a, length)
+
+    def draw_dashboard(self, stats):
+        dash_rect = pygame.Rect(0, self.width, self.width, self.dashboard_height)
+        pygame.draw.rect(self.screen, self.colors['bg'], dash_rect)
         
-        info = info or {}
-        status_val = info.get('status', 'Running')
-        key_status = "Acquired (1)" if info.get('key', 0) == 1 else "Not Acquired (0)"
+        header = self.font.render("RL Agent Interactive Dashboard", True, self.colors['key'])
+        self.screen.blit(header, (15, self.width + 5))
         
-        self.screen.blit(self.font_title.render("--- Simulation Status ---", True, COLORS["text_blue"]), (x_offset, y_offset))
-        y_offset += 25
+        col1_x, col2_x, y_start, y_gap = 15, self.width // 2, self.width + 35, 20
         
-        lines_info = [
-            f"Algorithm: {info.get('algorithm', 'Standard Environment')}",
-            f"Episode: {info.get('episode', 0)}    |    Step: {info.get('step', 0)}",
-            f"Total Reward: {info.get('reward', 0)}    |    Key: {key_status}"
+        left_stats = [
+            f"Algorithm: {stats['Algorithm']}",
+            f"Mode: {stats['Mode']}",
+            f"Environment: {stats['Environment']}",
+            f"Episode: {stats['Episode']}",
+            f"Step: {stats['Step']}"
+        ]
+        right_stats = [
+            f"Epsilon: {stats['Epsilon']}",
+            f"Success Rate: {stats['Success Rate']}",
+            f"Current Reward: {stats['Reward']}",
+            f"Has Key: {stats['Has Key']}",
+            f"Speed (FPS): {stats['FPS']}"
         ]
         
-        for text in lines_info:
-            self.screen.blit(self.font_bold.render(text, True, COLORS["text_dark"]), (x_offset, y_offset))
-            y_offset += 22
-
-        status_color = COLORS["text_green"] if "Goal" in status_val else COLORS["text_red"] if "Failed" in status_val else COLORS["text_dark"]
-        self.screen.blit(self.font_bold.render(f"Status: {status_val}", True, status_color), (x_offset, y_offset))
-        y_offset += 26
-        
-        self.screen.blit(self.font_title.render("--- Keyboard Controls ---", True, COLORS["text_blue"]), (x_offset, y_offset))
-        y_offset += 25
-        
-        col1 = [
-            "[SPACE]: Pause / Resume",
-            "[R]: Reset Episode",
-            "[P]: Toggle Policy View"
-        ]
-        col2 = [
-            "[A]: Switch Algorithm",
-            "[UP / DOWN]: Adjust Speed"
-        ]
-        
-        temp_y = y_offset
-        for ctrl in col1:
-            self.screen.blit(self.font_main.render(ctrl, True, COLORS["text_gray"]), (x_offset, temp_y))
-            temp_y += 22
+        for i, text in enumerate(left_stats):
+            img = self.font.render(text, True, self.colors['text'])
+            self.screen.blit(img, (col1_x, y_start + i * y_gap))
             
-        temp_y = y_offset
-        col2_x = x_offset + 220 
-        for ctrl in col2:
-            self.screen.blit(self.font_main.render(ctrl, True, COLORS["text_gray"]), (col2_x, temp_y))
-            temp_y += 22
+        for i, text in enumerate(right_stats):
+            img = self.font.render(text, True, self.colors['text'])
+            self.screen.blit(img, (col2_x, y_start + i * y_gap))
+            
+        # راهنمای دکمه‌ها (رنگی و خوانا)
+        c1 = "[SPACE]: Pause  |  [M]: Train/Eval  |  [P]: Show Policy  |  [+/-]: Speed"
+        c2 = "Env: [1] Source, [2] Similar, [3] Different"
+        c3 = "Algo: [Q] Q-Learning, [S] SARSA, [V] Value Iteration"
+        
+        self.screen.blit(self.small_font.render(c1, True, (180, 180, 180)), (10, self.height - 60))
+        self.screen.blit(self.small_font.render(c2, True, (150, 200, 250)), (10, self.height - 40))
+        self.screen.blit(self.small_font.render(c3, True, (250, 200, 150)), (10, self.height - 20))
 
-    def draw_state(self, state, info=None, policy_map=None, *args, **kwargs):
-        self.screen.fill(COLORS["background"])
-        
-        self._draw_grid()
-        self._draw_policy_arrows(policy_map)
-        self._draw_dynamic_obstacle(state)
-        self._draw_agent(state)
-        self._draw_dashboard(info)
-        
+    def render(self, env, agent, stats, show_policy):
+        self.screen.fill((0, 0, 0))
+        self.draw_grid(env)
+        if show_policy:
+            self.draw_policy(env, agent)
+        self.draw_dashboard(stats)
         pygame.display.flip()
