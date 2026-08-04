@@ -21,16 +21,14 @@ class SarsaLambdaAgent:
 
     def choose_action(self, state, epsilon):
         if random.uniform(0, 1) < epsilon:
-            # رفع باگ action_space
             return random.randint(0, 3)
         else:
-            # رفع باگ action_space
             q_values = [self.get_q(state, a) for a in range(4)]
             max_q = max(q_values)
             best_actions = [a for a in range(4) if q_values[a] == max_q]
             return random.choice(best_actions)
 
-    def train(self, episodes=1000):
+    def train(self, episodes=1000, max_steps=500):
         rewards = []
         steps = []
         wall_hits_list = []
@@ -38,7 +36,6 @@ class SarsaLambdaAgent:
         
         for episode in range(episodes):
             self.E.clear() 
-            
             state = self.env.reset()
             action = self.choose_action(state, self.epsilon)
             
@@ -48,7 +45,8 @@ class SarsaLambdaAgent:
             penalty_hits = 0
             done = False
             
-            while not done:
+            # اضافه‌شدن شرط max_steps
+            while not done and step < max_steps:
                 next_state, reward, done, info = self.env.step(action)
                 next_action = self.choose_action(next_state, self.epsilon)
                 

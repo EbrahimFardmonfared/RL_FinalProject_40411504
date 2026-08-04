@@ -11,26 +11,21 @@ class QLearningAgent:
         self.epsilon_end = epsilon_end
         self.decay_rate = decay_rate
         self.decay_type = decay_type
-        
         self.Q = defaultdict(float)
 
     def get_q(self, state, action):
         return self.Q.get((state, action), 0.0)
 
     def choose_action(self, state, epsilon):
-        """انتخاب عمل با استراتژی Epsilon-Greedy"""
         if random.uniform(0, 1) < epsilon:
-            # رفع باگ action_space: انتخاب تصادفی بین 0 تا 3
             return random.randint(0, 3) 
         else:
-            # رفع باگ action_space: حلقه روی 4 اکشن
             q_values = [self.get_q(state, a) for a in range(4)]
             max_q = max(q_values)
             best_actions = [a for a in range(4) if q_values[a] == max_q]
             return random.choice(best_actions)
 
-    def train(self, episodes=1000):
-        """آموزش عامل با الگوریتم Q-Learning"""
+    def train(self, episodes=1000, max_steps=500):
         rewards = []
         steps = []
         wall_hits_list = []
@@ -44,12 +39,11 @@ class QLearningAgent:
             penalty_hits = 0
             done = False
             
-            while not done:
+            # اضافه‌شدن شرط max_steps برای جلوگیری از حلقه‌ی بی‌نهایت
+            while not done and step < max_steps:
                 action = self.choose_action(state, self.epsilon)
-                
                 next_state, reward, done, info = self.env.step(action)
                 
-                # رفع باگ action_space: حلقه روی 4 اکشن
                 best_next_action = np.argmax([self.get_q(next_state, a) for a in range(4)])
                 td_target = reward + self.gamma * self.get_q(next_state, best_next_action)
                 td_error = td_target - self.get_q(state, action)
