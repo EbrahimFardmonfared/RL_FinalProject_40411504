@@ -32,6 +32,8 @@ def run_base_analysis():
     settings = load_settings()
     env = DynamicMazeEnv(use_reward_shaping=False)
     grid_size = env.grid_size
+    episodes = settings['episodes']
+    max_steps = settings['max_steps']
 
     # ==========================================
     # 1. اجرای Value Iteration و نقشه حرارتی ارزش
@@ -45,7 +47,6 @@ def run_base_analysis():
         for c in range(grid_size):
             if env.grid[r, c] != env.WALL:
                 v_grid[r, c] = vi.V.get((r, c, 0, 0), 0)
-    # جایگزین کردن عکس یتیم قدیمی با دیتای واقعی پروژه
     plot_heatmap(v_grid, 'Value Iteration - V Table Heatmap', 'value_heatmap.png')
 
     # ==========================================
@@ -54,7 +55,6 @@ def run_base_analysis():
     print("2. Running Q-Learning and tracking state visitation...")
     visitation_counts = np.zeros((grid_size, grid_size))
     
-    # استفاده از Wrapper برای ردیابی تعداد مراجعه بدون دستکاری کد محیط
     original_step = env.step
     def step_wrapper(action):
         r, c = env.agent_pos
@@ -64,27 +64,26 @@ def run_base_analysis():
 
     ql = QLearningAgent(env, alpha=settings['alpha'], gamma=settings['gamma'],
                         epsilon_start=settings['epsilon_start'], epsilon_end=settings['epsilon_end'])
-    ql_rewards, ql_steps, _, _ = ql.train(episodes=settings['episodes'], max_steps=settings['max_steps'])
+    ql_rewards, ql_steps, _, _ = ql.train(episodes=episodes, max_steps=max_steps)
 
-    # جایگزین کردن عکس یتیم قدیمی با دیتای واقعی
     plot_heatmap(visitation_counts, 'State Visitation Heatmap (Q-Learning)', 'visitation_heatmap.png', cmap='hot')
-    env.step = original_step # بازگرداندن محیط به حالت عادی
+    env.step = original_step 
 
     # ==========================================
     # 3. اجرای SARSA(lambda)
     # ==========================================
     print("3. Running SARSA(lambda) evaluation...")
     sarsa = SarsaLambdaAgent(env, alpha=settings['alpha'], gamma=settings['gamma'],
-                             lmbda=settings['sarsa_lambdas'][3], # Lambda = 0.9
+                             lmbda=settings['sarsa_lambdas'][3],
                              epsilon_start=settings['epsilon_start'], epsilon_end=settings['epsilon_end'])
-    sarsa_rewards, sarsa_steps, _, _ = sarsa.train(episodes=settings['episodes'], max_steps=settings['max_steps'])
+    sarsa_rewards, sarsa_steps, _, _ = sarsa.train(episodes=episodes, max_steps=max_steps)
 
     # ==========================================
-    # 4. تولید منحنی‌های یادگیری گمشده (Base Learning Curves)
+    # 4. تولید منحنی‌های یادگیری الگوریتم‌های پایه
     # ==========================================
     print("4. Saving Base Learning Curves and Rewards Plot...")
     df = pd.DataFrame({
-        'Episode': range(1, settings['episodes'] + 1),
+        'Episode': range(1, episodes + 1),
         'QL_Rewards': ql_rewards,
         'SARSA_Rewards': sarsa_rewards,
         'QL_Steps': ql_steps,
@@ -121,17 +120,15 @@ def run_base_analysis():
             state = (r, c, 0, 0)
             vi_action = vi.get_action(state)
 
-            # استخراج اکشن برتر Q-Learning
             ql_q_vals = [ql.get_q(state, a) for a in range(4)]
             ql_action = np.argmax(ql_q_vals) if any(q != 0 for q in ql_q_vals) else 0
             ql_diff[r, c] = 1 if vi_action == ql_action else 0
 
-            # استخراج اکشن برتر SARSA
             sarsa_q_vals = [sarsa.get_q(state, a) for a in range(4)]
             sarsa_action = np.argmax(sarsa_q_vals) if any(q != 0 for q in sarsa_q_vals) else 0
             sarsa_diff[r, c] = 1 if vi_action == sarsa_action else 0
 
-    cmap_diff = ListedColormap(['#303030', '#e74c3c', '#2ecc71']) # خاکستری (دیوار)، قرمز (تفاوت)، سبز (تطابق)
+    cmap_diff = ListedColormap(['#303030', '#e74c3c', '#2ecc71'])
 
     plt.figure(figsize=(8, 6))
     sns.heatmap(ql_diff, cmap=cmap_diff, cbar=False, annot=False)
@@ -145,7 +142,36 @@ def run_base_analysis():
     plt.savefig('results/figures/Policy_Diff_SARSA_vs_VI.png', dpi=300, bbox_inches='tight')
     plt.close()
 
-    print("\n✅ Base analysis fully completed! All required data and figures generated based on settings.json.")
+    # ==========================================
+    # 6. مقایسه Reward Shaping (الزام داکیومنت)
+    # ==========================================
+    print("6. Running Reward Shaping Comparison (Sparse vs Shaped)...")
+    env_shaped = DynamicMazeEnv(use_reward_shaping=True)
+    agent_shaped = QLearningAgent(env_shaped, alpha=settings['alpha'], gamma=settings['gamma'],
+                                  epsilon_start=settings['epsilon_start'], epsilon_end=settings['epsilon_end'])
+    shaped_rewards, shaped_steps, _, _ = agent_shaped.train(episodes=episodes, max_steps=max_steps)
+
+    df_shaping = pd.DataFrame({
+        'Episode': range(1, episodes + 1),
+        'Sparse_Rewards': ql_rewards, # از اجرای QL در مرحله 2 برداشته می‌شود
+        'Shaped_Rewards': shaped_rewards,
+        'Sparse_Steps': ql_steps,
+        'Shaped_Steps': shaped_steps
+    })
+    df_shaping.to_csv('results/raw_data/reward_shaping_comparison.csv', index=False)
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(pd.Series(ql_steps).rolling(window).mean(), label='Sparse Reward (Steps to Goal)', color='red')
+    plt.plot(pd.Series(shaped_steps).rolling(window).mean(), label='Shaped Reward (Steps to Goal)', color='green')
+    plt.title(f'Reward Shaping Impact: Steps to Complete Episode (Moving Average {window})')
+    plt.xlabel('Episodes')
+    plt.ylabel('Steps (Lower is Better)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig('results/figures/reward_shaping_steps.png', dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print("\n✅ Base analysis and Reward Shaping evaluation fully completed!")
 
 if __name__ == "__main__":
     run_base_analysis()
