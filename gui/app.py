@@ -35,10 +35,11 @@ class MazeApp:
     def setup_env_and_agent(self):
         """راه‌اندازی محیط و عامل بر اساس انتخاب‌های کاربر در رابط کاربری"""
         self.env = DynamicMazeEnv(use_reward_shaping=False)
+        # 🔴 رفع باگ: ذخیره شیء بازگردانده شده در self.env
         if self.env_type == 'Similar' and hasattr(self.env, 'generate_similar_map'):
-            self.env.generate_similar_map()
+            self.env = self.env.generate_similar_map()
         elif self.env_type == 'Different' and hasattr(self.env, 'generate_different_map'):
-            self.env.generate_different_map()
+            self.env = self.env.generate_different_map()
             
         if self.algo_name == 'Q-Learning':
             self.agent = QLearningAgent(self.env)

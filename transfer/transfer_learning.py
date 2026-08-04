@@ -38,9 +38,20 @@ class TransferLearningExperiment:
         if self.source_q_table is not None:
             for (state, action), q_val in self.source_q_table.items():
                 r, c = state[0], state[1]
-                # انتقال انتخابی: فقط به خانه‌هایی که در مقصد دیوار نیستند منتقل کن
-                if 0 <= r < self.target_env.grid_size and 0 <= c < self.target_env.grid_size:
-                    if self.target_env.grid[r, c] != self.target_env.WALL:
-                        agent.Q[(state, action)] = q_val
+                
+                # 🔴 پیاده‌سازی همسایگی محلی (Local Neighborhood): خود خانه و 4 خانه اطراف
+                neighborhood_match = True
+                for dr, dc in [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < self.source_env.grid_size and 0 <= nc < self.source_env.grid_size:
+                        # اگر ساختار این خانه در مبدأ و مقصد فرق داشت، همسایگی به هم خورده است
+                        if self.source_env.grid[nr, nc] != self.target_env.grid[nr, nc]:
+                            neighborhood_match = False
+                            break
+                
+                # انتقال انتخابی: فقط اگر کل همسایگی سالم بود، دانش را منتقل کن
+                if neighborhood_match:
+                    agent.Q[(state, action)] = q_val
+                    
         agent.epsilon = 0.5
         return agent.train(episodes=episodes, max_steps=max_steps)

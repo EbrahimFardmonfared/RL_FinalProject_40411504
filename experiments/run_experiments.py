@@ -27,7 +27,6 @@ def plot_q_difference(source_q, target_q, target_name, grid_size):
     diff_grid = np.zeros((grid_size, grid_size))
     for r in range(grid_size):
         for c in range(grid_size):
-            # فرض بر حالت بدون کلید و مانع ثابت برای محاسبه تفاوت پایه
             state = (r, c, 0, 0)
             diffs = []
             for a in range(4):
@@ -46,36 +45,25 @@ def run_all():
     os.makedirs('results/figures', exist_ok=True)
     os.makedirs('results/raw_data', exist_ok=True)
 
-    print("--- 1. Enforcing Student ID Constraints ---")
-    # اعمال قوانین اجباری داکیومنت پروژه
-    student_id = "40411504"
-    b = int(student_id[-2]) # 0
-    grid_size = 15 + (b % 4) # 15
-    np.random.seed(b)
-    print(f"Student ID: {student_id} -> Map Size: {grid_size}x{grid_size}, Seed: {b}")
-
-    print("\n--- 2. Generating & Saving Baseline Models (VI & SARSA) ---")
-    base_env = DynamicMazeEnv(use_reward_shaping=False)
+    # 🔴 محیط به صورت نیتیو از شماره دانشجویی (seed=0, grid=15) استفاده می‌کند
+    print("--- 1. Generating & Saving Baseline Models (VI & SARSA) ---")
+    source_env = DynamicMazeEnv(use_reward_shaping=False)
+    grid_size = source_env.grid_size
     
-    # اجرای Value Iteration و ذخیره مدل
-    vi = ValueIterationAgent(base_env)
+    vi = ValueIterationAgent(source_env)
     vi.run()
     save_model(vi.V, 'vi_vtable.pkl')
     
-    # اجرای SARSA و ذخیره مدل
-    sarsa = SarsaLambdaAgent(base_env, lmbda=0.9)
+    sarsa = SarsaLambdaAgent(source_env, lmbda=0.9)
     sarsa.train(episodes=500, max_steps=500)
     save_model(sarsa.Q, 'sarsa_lambda_0.9_qtable.pkl')
     print("-> Reference Models Saved.")
 
-    print("\n--- 3. Full Transfer Learning Experiments ---")
-    source_env = DynamicMazeEnv(use_reward_shaping=False)
+    print("\n--- 2. Full Transfer Learning Experiments ---")
     
-    similar_env = DynamicMazeEnv(use_reward_shaping=False)
-    if hasattr(similar_env, 'generate_similar_map'): similar_env.generate_similar_map()
-    
-    different_env = DynamicMazeEnv(use_reward_shaping=False)
-    if hasattr(different_env, 'generate_different_map'): different_env.generate_different_map()
+    # 🔴 رفع باگ: ذخیره خروجی توابع در متغیرهای جدید
+    similar_env = source_env.generate_similar_map() if hasattr(source_env, 'generate_similar_map') else DynamicMazeEnv(use_reward_shaping=False)
+    different_env = source_env.generate_different_map() if hasattr(source_env, 'generate_different_map') else DynamicMazeEnv(use_reward_shaping=False)
 
     episodes = 500
     for target_name, target_env in [("Similar", similar_env), ("Different", different_env)]:
