@@ -2,24 +2,24 @@ import pygame
 import numpy as np
 
 class Renderer:
-    def __init__(self, env, cell_size=30): # سایز از 40 به 30 کاهش یافت
+    def __init__(self, env, cell_size=30):
         self.cell_size = cell_size
         self.grid_size = env.grid_size
         self.width = self.grid_size * self.cell_size
-        self.dashboard_height = 200 # ارتفاع داشبورد کمتر شد
+        self.dashboard_height = 200
         self.height = self.width + self.dashboard_height
         
         self.screen = pygame.display.set_mode((self.width, self.height))
         pygame.display.set_caption("RL Dynamic Maze Dashboard")
         self.font = pygame.font.SysFont('Arial', 16, bold=True)
         self.small_font = pygame.font.SysFont('Arial', 13)
+        self.key_font = pygame.font.SysFont('Arial', 14, bold=True)
         
         self.colors = {
             'empty': (240, 240, 240),
             'wall': (40, 40, 40),
             'penalty': (200, 50, 50),
             'agent': (50, 150, 250),
-            'key': (255, 215, 0),
             'door_locked': (139, 69, 19),
             'door_open': (160, 160, 160),
             'goal': (50, 200, 50),
@@ -45,17 +45,29 @@ class Renderer:
         goal_rect = pygame.Rect(env.goal_pos[1]*self.cell_size, env.goal_pos[0]*self.cell_size, self.cell_size, self.cell_size)
         pygame.draw.rect(self.screen, self.colors['goal'], goal_rect)
         
-        # کلید
+        # کلید: حرف K درون دایره با پس‌زمینه زرد
         if not env.has_key:
-            key_rect = pygame.Rect(env.key_pos[1]*self.cell_size+6, env.key_pos[0]*self.cell_size+6, self.cell_size-12, self.cell_size-12)
-            pygame.draw.ellipse(self.screen, self.colors['key'], key_rect)
+            kr, kc = env.key_pos
+            cell_rect = pygame.Rect(kc * self.cell_size, kr * self.cell_size, self.cell_size, self.cell_size)
+            pygame.draw.rect(self.screen, (255, 215, 0), cell_rect)
+            pygame.draw.rect(self.screen, (200, 200, 200), cell_rect, 1)
+            
+            center_x = kc * self.cell_size + self.cell_size // 2
+            center_y = kr * self.cell_size + self.cell_size // 2
+            radius = self.cell_size // 3
+            pygame.draw.circle(self.screen, (220, 180, 0), (center_x, center_y), radius)
+            pygame.draw.circle(self.screen, (100, 80, 0), (center_x, center_y), radius, 1)
+            
+            text_surf = self.key_font.render("K", True, (20, 20, 20))
+            text_rect = text_surf.get_rect(center=(center_x, center_y))
+            self.screen.blit(text_surf, text_rect)
             
         # در
         door_color = self.colors['door_open'] if env.has_key else self.colors['door_locked']
         door_rect = pygame.Rect(env.door_pos[1]*self.cell_size, env.door_pos[0]*self.cell_size, self.cell_size, self.cell_size)
         pygame.draw.rect(self.screen, door_color, door_rect)
         
-        # مانع
+        # مانع متحرک
         obs_pos = env.patrol_route[env.patrol_idx]
         obs_rect = pygame.Rect(obs_pos[1]*self.cell_size+4, obs_pos[0]*self.cell_size+4, self.cell_size-8, self.cell_size-8)
         pygame.draw.rect(self.screen, self.colors['obstacle'], obs_rect)
@@ -65,7 +77,6 @@ class Renderer:
         pygame.draw.ellipse(self.screen, self.colors['agent'], agent_rect)
 
     def draw_arrow(self, cx, cy, direction, length):
-        """رسم فلش واقعی (خط + مثلث نوک پیکان)"""
         color = (0, 0, 0)
         if direction == 0: # بالا
             end = (cx, cy - length)
@@ -110,7 +121,7 @@ class Renderer:
         dash_rect = pygame.Rect(0, self.width, self.width, self.dashboard_height)
         pygame.draw.rect(self.screen, self.colors['bg'], dash_rect)
         
-        header = self.font.render("RL Agent Interactive Dashboard", True, self.colors['key'])
+        header = self.font.render("RL Agent Interactive Dashboard", True, (255, 215, 0))
         self.screen.blit(header, (15, self.width + 5))
         
         col1_x, col2_x, y_start, y_gap = 15, self.width // 2, self.width + 35, 20
@@ -138,7 +149,6 @@ class Renderer:
             img = self.font.render(text, True, self.colors['text'])
             self.screen.blit(img, (col2_x, y_start + i * y_gap))
             
-        # راهنمای دکمه‌ها (رنگی و خوانا)
         c1 = "[SPACE]: Pause  |  [M]: Train/Eval  |  [P]: Show Policy  |  [+/-]: Speed"
         c2 = "Env: [1] Source, [2] Similar, [3] Different"
         c3 = "Algo: [Q] Q-Learning, [S] SARSA, [V] Value Iteration"

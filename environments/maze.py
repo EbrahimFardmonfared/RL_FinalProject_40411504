@@ -16,18 +16,18 @@ class DynamicMazeEnv:
         self.grid_size = 15
         self.seed = 0
         
-        # تنظیم سید قطعی برای تکرارپذیری طبق شماره دانشجویی
+        # تنظیم سید قطعی برای تکرارپذیری
         np.random.seed(self.seed)
         random.seed(self.seed)
         
-        # مختصات اصلی محیط (تثبیت شده)
+        # مختصات اصلی محیط 
         self.start_pos = (0, 0)
         self.key_pos = (2, 12)
         self.goal_pos = (14, 14)
-        self.door_pos = (7, 7)
+        self.door_pos = (13, 14) # در دقیقاً بالای خانه هدف قرار دارد
         
-        # مسیر گشت‌زنی مانع متحرک (حفظ خاصیت مارکوف)
-        self.patrol_route = [(4, 4), (4, 5), (4, 6), (4, 7), (4, 8), (4, 7), (4, 6), (4, 5)]
+        # مسیر گشت‌زنی مانع متحرک با حرکت مربعی (سطرهای 4 تا 6 و ستون‌های 7 تا 9)
+        self.patrol_route = [(4, 7), (4, 8), (4, 9), (5, 9), (6, 9), (6, 8), (6, 7), (5, 7)]
         
         self._build_grid()
         self.reset()
@@ -35,28 +35,41 @@ class DynamicMazeEnv:
     def _build_grid(self):
         self.grid = np.zeros((self.grid_size, self.grid_size), dtype=int)
         
-        # قرار دادن المان‌های اصلی
-        self.grid[self.key_pos] = self.KEY
-        self.grid[self.door_pos] = self.DOOR
-        self.grid[self.goal_pos] = self.GOAL
+        # ====== بازسازی دقیق نقشه قبلی برای جلوگیری از جابجایی موانع ثابت ======
+        old_door_pos = (7, 7)
+        old_patrol_route = [(4, 4), (4, 5), (4, 6), (4, 7), (4, 8), (4, 7), (4, 6), (4, 5)]
         
-        # تولید دیوارهای ثابت و خانه‌های جریمه
         cells = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size)]
         cells.remove(self.start_pos)
         cells.remove(self.key_pos)
-        cells.remove(self.door_pos)
+        cells.remove(old_door_pos)
         cells.remove(self.goal_pos)
-        for p in self.patrol_route:
+        for p in set(old_patrol_route):
             if p in cells:
                 cells.remove(p)
                 
         random.shuffle(cells)
         
-        # قرار دادن دیوارها و جریمه‌ها
         for i in range(30):
             self.grid[cells[i]] = self.WALL
         for i in range(30, 38):
             self.grid[cells[i]] = self.PENALTY
+        # ===================================================================
+
+        # قرار دادن المان‌های اصلی جدید در نقشه
+        self.grid[self.key_pos] = self.KEY
+        self.grid[self.goal_pos] = self.GOAL
+        
+        # پاک کردن محل قبلی در
+        self.grid[old_door_pos] = self.EMPTY
+        
+        # قرار دادن درِ جدید (بالای هدف)
+        self.grid[self.door_pos] = self.DOOR
+        
+        # اطمینان از اینکه مسیر مانع متحرک جدید توسط دیوارهای قبلی مسدود نشده باشد
+        for p in self.patrol_route:
+            if self.grid[p] == self.WALL or self.grid[p] == self.PENALTY:
+                self.grid[p] = self.EMPTY
 
     def reset(self):
         self.agent_pos = self.start_pos
@@ -65,13 +78,12 @@ class DynamicMazeEnv:
         return self._get_state()
 
     def _get_state(self):
-        # حالت عامل شامل موقعیت، وضعیت کلید و موقعیت مانع متحرک است
         return (self.agent_pos[0], self.agent_pos[1], int(self.has_key), self.patrol_idx)
 
     def step(self, action):
         r, c = self.agent_pos
         
-        # 🔴 اعمال عدم قطعیت 0.8 / 0.1 / 0.1 طبق سند
+        # اعمال عدم قطعیت 0.8 / 0.1 / 0.1
         rand_val = random.random()
         if rand_val < 0.8:
             actual_action = action
@@ -81,10 +93,10 @@ class DynamicMazeEnv:
             actual_action = (action + 1) % 4
             
         dr, dc = 0, 0
-        if actual_action == 0:   dr = -1 # UP
-        elif actual_action == 1: dc = 1  # RIGHT
-        elif actual_action == 2: dr = 1  # DOWN
-        elif actual_action == 3: dc = -1 # LEFT
+        if actual_action == 0:   dr = -1
+        elif actual_action == 1: dc = 1
+        elif actual_action == 2: dr = 1
+        elif actual_action == 3: dc = -1
         
         nr, nc = r + dr, c + dc
         hit_wall = False
@@ -103,11 +115,9 @@ class DynamicMazeEnv:
             
         self.agent_pos = (nr, nc)
         
-        # حرکت مانع متحرک
         self.patrol_idx = (self.patrol_idx + 1) % len(self.patrol_route)
         obstacle_pos = self.patrol_route[self.patrol_idx]
         
-        # منطق پاداش
         reward = -1.0
         done = False
         
@@ -130,12 +140,10 @@ class DynamicMazeEnv:
         if hit_wall:
             reward -= 5.0
 
-        # 🔴 اصلاح منطق Reward Shaping (هدفِ پویا)
         if self.use_reward_shaping:
             target_r, target_c = self.goal_pos if self.has_key else self.key_pos
             phi_current = - (abs(r - target_r) + abs(c - target_c))
             
-            # توجه: حالتِ next_has_key همان self.has_key است، چون کلید ممکن است همین الان برداشته شده باشد.
             next_target_r, next_target_c = self.goal_pos if self.has_key else self.key_pos
             phi_next = - (abs(nr - next_target_r) + abs(nc - next_target_c))
             
@@ -147,7 +155,6 @@ class DynamicMazeEnv:
         return self._get_state(), reward, done, info
 
     def get_transitions(self, state, action):
-        """تولید مدل احتمالاتی واقعی P(s'|s,a) برای الگوریتم Value Iteration"""
         r, c, has_key, patrol_idx = state
         has_key = bool(has_key)
         transitions = []
@@ -218,7 +225,6 @@ class DynamicMazeEnv:
         return transitions
 
     def generate_similar_map(self):
-        """بازگرداندن شیء جدید برای محیط مشابه"""
         new_env = copy.deepcopy(self)
         new_env.use_reward_shaping = self.use_reward_shaping
         
@@ -237,7 +243,6 @@ class DynamicMazeEnv:
         return new_env
 
     def generate_different_map(self):
-        """بازگرداندن شیء جدید برای محیط متفاوت"""
         new_env = copy.deepcopy(self)
         new_env.use_reward_shaping = self.use_reward_shaping
         
