@@ -4,7 +4,6 @@ import copy
 from collections import deque
 
 class DynamicMazeEnv:
-    # تعریف شناسه‌های المان‌های محیط
     EMPTY = 0
     WALL = 1
     PENALTY = 2
@@ -17,24 +16,20 @@ class DynamicMazeEnv:
         self.grid_size = 15
         self.seed = 0
         
-        # تنظیم سید قطعی برای تکرارپذیری
         np.random.seed(self.seed)
         random.seed(self.seed)
         
-        # مختصات اصلی محیط 
         self.start_pos = (0, 0)
         self.key_pos = (2, 12)
         self.goal_pos = (14, 14)
-        self.door_pos = (13, 14) # در دقیقاً بالای خانه هدف قرار دارد
+        self.door_pos = (13, 14) 
         
-        # مسیر گشت‌زنی مانع متحرک با حرکت مربعی (سطرهای 4 تا 6 و ستون‌های 7 تا 9)
-        self.patrol_route = [(4, 7), (4, 8), (4, 9), (5, 9), (6, 9), (6, 8), (6, 7), (5, 7)]
+        self.patrol_route = [(7, 4), (7, 5), (7, 6), (8, 6), (9, 6), (9, 5), (9, 4), (8, 4)]
         
         self._generate_valid_map()
         self.reset()
 
     def _generate_valid_map(self):
-        """تولید نقشه با تضمین وجود مسیر معتبر (الزام سند)"""
         max_attempts = 1000
         for _ in range(max_attempts):
             self._build_grid()
@@ -45,7 +40,6 @@ class DynamicMazeEnv:
     def _build_grid(self):
         self.grid = np.zeros((self.grid_size, self.grid_size), dtype=int)
         
-        # قرار دادن المان‌های اصلی
         self.grid[self.key_pos] = self.KEY
         self.grid[self.door_pos] = self.DOOR
         self.grid[self.goal_pos] = self.GOAL
@@ -61,18 +55,14 @@ class DynamicMazeEnv:
                 
         random.shuffle(cells)
         
-        # 35 دیوار (> 15% از 225 خانه) و 8 جریمه
         for i in range(35):
             self.grid[cells[i]] = self.WALL
         for i in range(35, 43):
             self.grid[cells[i]] = self.PENALTY
 
     def _bfs_check(self):
-        """اعتبارسنجی نقشه: مسیر شروع تا کلید (بدون عبور از در) و مسیر کلید تا هدف"""
-        # 1. از شروع تا کلید (در به عنوان دیوار در نظر گرفته می‌شود)
         if not self._has_path(self.start_pos, self.key_pos, impassable=[self.WALL, self.DOOR]):
             return False
-        # 2. از کلید تا هدف (در قابل عبور است)
         if not self._has_path(self.key_pos, self.goal_pos, impassable=[self.WALL]):
             return False
         return True
@@ -106,7 +96,6 @@ class DynamicMazeEnv:
     def step(self, action):
         r, c = self.agent_pos
         
-        # اعمال عدم قطعیت 0.8 / 0.1 / 0.1
         rand_val = random.random()
         if rand_val < 0.8:
             actual_action = action
@@ -125,7 +114,6 @@ class DynamicMazeEnv:
         hit_wall = False
         hit_penalty = False
         
-        # بررسی برخورد با مرز، دیوار یا در بسته
         if not (0 <= nr < self.grid_size and 0 <= nc < self.grid_size):
             nr, nc = r, c
             hit_wall = True
@@ -262,7 +250,6 @@ class DynamicMazeEnv:
                     new_env.grid[er, ec] = self.WALL
                     walls.remove((wr, wc))
                     empties.remove((er, ec))
-            # اعتبارسنجی نقشه جدید
             if new_env._bfs_check():
                 return new_env
         return self
@@ -284,7 +271,6 @@ class DynamicMazeEnv:
             for i in range(10, min(15, len(empties))):
                 er, ec = empties[i]
                 new_env.grid[er, ec] = self.PENALTY
-            # اعتبارسنجی نقشه جدید
             if new_env._bfs_check():
                 return new_env
         return self
