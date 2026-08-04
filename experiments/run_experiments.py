@@ -1,100 +1,128 @@
 import os
 import sys
+import copy
+import pickle
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 # اضافه کردن مسیر ریشه پروژه
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from environments.maze import DynamicMazeEnv
 from transfer.transfer_learning import TransferLearningExperiment
+from agents.value_iteration import ValueIterationAgent
+from agents.sarsa_lambda import SarsaLambdaAgent
+from agents.q_learning import QLearningAgent
 
-def calculate_success(steps_list, max_steps=500):
-    # اگر تعداد قدم‌ها کمتر از سقف باشد، یعنی با موفقیت به هدف رسیده است
-    return [1 if s < max_steps else 0 for s in steps_list]
+def save_model(model_data, filename):
+    """ذخیره مدل‌ها در پوشه results/models"""
+    os.makedirs('results/models', exist_ok=True)
+    with open(f'results/models/{filename}', 'wb') as f:
+        pickle.dump(model_data, f)
 
-def save_and_plot_results(target_name, results_dict):
-    # ذخیره ۶ فایل CSV برای هر محیط
-    for method_name, data in results_dict.items():
-        rewards, steps, wall_hits, penalty_hits = data
-        df = pd.DataFrame({
-            'Episode': range(1, len(rewards) + 1),
-            'Rewards': rewards,
-            'Steps': steps,
-            'Wall_Hits': wall_hits,
-            'Penalty_Hits': penalty_hits,
-            'Success': calculate_success(steps)
-        })
-        safe_method_name = method_name.replace('=', '').replace('.', '_')
-        df.to_csv(f'results/raw_data/transfer_{target_name}_{safe_method_name}.csv', index=False)
-        
-    # رسم نمودار Transfer Curves هماهنگ با داده‌های جدید
-    window = 20
-    plt.figure(figsize=(10, 6))
-    for method_name, data in results_dict.items():
-        rewards = data[0]
-        plt.plot(pd.Series(rewards).rolling(window).mean(), label=method_name)
-        
-    plt.title(f'Transfer Learning Performance ({target_name} Environment)')
-    plt.xlabel('Episodes')
-    plt.ylabel(f'Total Reward (Moving Average {window})')
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(f'results/figures/Transfer_Curves_{target_name}.png', dpi=300)
+def plot_q_difference(source_q, target_q, target_name, grid_size):
+    """رسم نقشه حرارتی تفاوت مقادیر Q قبل و بعد از انتقال"""
+    diff_grid = np.zeros((grid_size, grid_size))
+    for r in range(grid_size):
+        for c in range(grid_size):
+            # فرض بر حالت بدون کلید و مانع ثابت برای محاسبه تفاوت پایه
+            state = (r, c, 0, 0)
+            diffs = []
+            for a in range(4):
+                sq = source_q.get((state, a), 0.0)
+                tq = target_q.get((state, a), 0.0)
+                diffs.append(abs(tq - sq))
+            diff_grid[r, c] = np.max(diffs) if diffs else 0.0
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(diff_grid, cmap='viridis', annot=False)
+    plt.title(f'Max Q-Value Difference (Source vs Target) - {target_name}')
+    plt.savefig(f'results/figures/Q_Diff_Transfer_{target_name}.png', dpi=300)
     plt.close()
 
 def run_all():
     os.makedirs('results/figures', exist_ok=True)
     os.makedirs('results/raw_data', exist_ok=True)
 
-    print("--- Starting Full Transfer Learning Experiments ---")
+    print("--- 1. Enforcing Student ID Constraints ---")
+    # اعمال قوانین اجباری داکیومنت پروژه
+    student_id = "40411504"
+    b = int(student_id[-2]) # 0
+    grid_size = 15 + (b % 4) # 15
+    np.random.seed(b)
+    print(f"Student ID: {student_id} -> Map Size: {grid_size}x{grid_size}, Seed: {b}")
+
+    print("\n--- 2. Generating & Saving Baseline Models (VI & SARSA) ---")
+    base_env = DynamicMazeEnv(use_reward_shaping=False)
     
-    # 1. ساخت محیط مبدأ (بدون پارامترهای غلط)
+    # اجرای Value Iteration و ذخیره مدل
+    vi = ValueIterationAgent(base_env)
+    vi.run()
+    save_model(vi.V, 'vi_vtable.pkl')
+    
+    # اجرای SARSA و ذخیره مدل
+    sarsa = SarsaLambdaAgent(base_env, lmbda=0.9)
+    sarsa.train(episodes=500, max_steps=500)
+    save_model(sarsa.Q, 'sarsa_lambda_0.9_qtable.pkl')
+    print("-> Reference Models Saved.")
+
+    print("\n--- 3. Full Transfer Learning Experiments ---")
     source_env = DynamicMazeEnv(use_reward_shaping=False)
     
-    # 2. ساخت محیط مشابه
     similar_env = DynamicMazeEnv(use_reward_shaping=False)
-    if hasattr(similar_env, 'generate_similar_map'):
-        similar_env.generate_similar_map()
-        
-    # 3. ساخت محیط متفاوت
+    if hasattr(similar_env, 'generate_similar_map'): similar_env.generate_similar_map()
+    
     different_env = DynamicMazeEnv(use_reward_shaping=False)
-    if hasattr(different_env, 'generate_different_map'):
-        different_env.generate_different_map()
+    if hasattr(different_env, 'generate_different_map'): different_env.generate_different_map()
 
     episodes = 500
-
-    # اجرای سناریوها برای هر دو محیط
     for target_name, target_env in [("Similar", similar_env), ("Different", different_env)]:
-        print(f"\n==================================================")
-        print(f"Evaluating Transfer on {target_name} Environment")
-        print(f"==================================================")
-        
+        print(f"\nEvaluating {target_name} Environment...")
         exp = TransferLearningExperiment(source_env, target_env)
         
-        print("1. Training Source Agent (Building Knowledge)...")
-        exp.train_source(episodes)
-        
+        # آموزش مبدأ و ذخیره دانش پایه
+        exp.train_source(episodes, max_steps=500)
+        save_model(exp.source_q_table, f'source_q_table_{target_name}.pkl')
+
         results = {}
-        
-        print("2. Target: From Scratch (No Transfer)...")
-        results['Scratch'] = exp.train_target_from_scratch(episodes)
-        
-        print("3. Target: Full Transfer...")
-        results['Full'] = exp.train_target_full_transfer(episodes)
+        results['Scratch'] = exp.train_target_from_scratch(episodes, max_steps=500)
+        results['Full'] = exp.train_target_full_transfer(episodes, max_steps=500)
         
         for beta in [0.25, 0.5, 0.75]:
-            print(f"4. Target: Beta Transfer (Beta={beta})...")
-            results[f'Beta_{beta}'] = exp.train_target_beta_transfer(episodes, beta=beta)
-            
-        print("5. Target: Selective Transfer...")
-        results['Selective'] = exp.train_target_selective_transfer(episodes)
-        
-        save_and_plot_results(target_name, results)
-        print(f"✅ Data and Plots saved for {target_name} Environment.")
+            results[f'Beta_{beta}'] = exp.train_target_beta_transfer(episodes, max_steps=500, beta=beta)
+        results['Selective'] = exp.train_target_selective_transfer(episodes, max_steps=500)
 
-    print("\n🎉 Transfer Learning benchmarks completed! 12 CSVs and 2 PNGs generated.")
+        # محاسبه هدف کامل برای رسم تفاوت Q-table
+        print(f"Generating Q-Diff Heatmap for {target_name}...")
+        agent_target = QLearningAgent(target_env)
+        agent_target.Q = copy.deepcopy(exp.source_q_table)
+        agent_target.epsilon = 0.5
+        agent_target.train(episodes, max_steps=500)
+        plot_q_difference(exp.source_q_table, agent_target.Q, target_name, grid_size)
+        save_model(agent_target.Q, f'target_full_q_table_{target_name}.pkl')
+
+        # ذخیره داده‌های CSV و رسم نمودار انتقال
+        window = 20
+        plt.figure(figsize=(10, 6))
+        for method_name, data in results.items():
+            rewards, steps, wall_hits, penalty_hits = data
+            success = [1 if s < 500 else 0 for s in steps]
+            
+            df = pd.DataFrame({'Episode': range(1, len(rewards)+1), 'Rewards': rewards, 'Steps': steps, 'Success': success})
+            clean_name = method_name.replace('.', '_')
+            df.to_csv(f'results/raw_data/transfer_{target_name}_{clean_name}.csv', index=False)
+            
+            plt.plot(pd.Series(rewards).rolling(window).mean(), label=method_name)
+        
+        plt.title(f'Transfer Learning Performance - {target_name}')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        plt.savefig(f'results/figures/Transfer_Curves_{target_name}.png')
+        plt.close()
+        
+    print("\n✅ Run Experiments Completed. CSVs, Figures, and Models Generated.")
 
 if __name__ == "__main__":
     run_all()
