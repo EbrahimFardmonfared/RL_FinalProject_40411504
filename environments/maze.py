@@ -22,7 +22,7 @@ class DynamicMazeEnv:
         self.start_pos = (0, 0)
         self.key_pos = (2, 12)
         self.goal_pos = (14, 14)
-        self.door_pos = (13, 14) 
+        self.door_pos = (13, 14) # در دقیقاً بالای خانه هدف قرار دارد
         
         self.patrol_route = [(7, 4), (7, 5), (7, 6), (8, 6), (9, 6), (9, 5), (9, 4), (8, 4)]
         
@@ -44,20 +44,25 @@ class DynamicMazeEnv:
         self.grid[self.door_pos] = self.DOOR
         self.grid[self.goal_pos] = self.GOAL
         
+        # مسدود کردن سمت چپ هدف برای تبدیل کردن در به تنها گلوگاه ورودی
+        self.grid[14, 13] = self.WALL 
+        
         cells = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size)]
         cells.remove(self.start_pos)
         cells.remove(self.key_pos)
         cells.remove(self.door_pos)
         cells.remove(self.goal_pos)
+        cells.remove((14, 13)) # حذف از لیست خانه‌های خالی
         for p in set(self.patrol_route):
             if p in cells:
                 cells.remove(p)
                 
         random.shuffle(cells)
         
-        for i in range(35):
+        # 34 دیوار رندوم + 1 دیوار ثابت (14, 13) = 35 دیوار (بیشتر از 15 درصد)
+        for i in range(34):
             self.grid[cells[i]] = self.WALL
-        for i in range(35, 43):
+        for i in range(34, 42):
             self.grid[cells[i]] = self.PENALTY
 
     def _bfs_check(self):
@@ -241,6 +246,7 @@ class DynamicMazeEnv:
             new_env = copy.deepcopy(self)
             new_env.use_reward_shaping = self.use_reward_shaping
             walls = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.WALL]
+            if (14, 13) in walls: walls.remove((14, 13)) # محافظت از دیوار مسدودکننده کنار هدف
             empties = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.EMPTY]
             if len(walls) >= 3 and len(empties) >= 3:
                 for i in range(3):
@@ -260,6 +266,7 @@ class DynamicMazeEnv:
             new_env = copy.deepcopy(self)
             new_env.use_reward_shaping = self.use_reward_shaping
             walls = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.WALL]
+            if (14, 13) in walls: walls.remove((14, 13)) # محافظت از دیوار مسدودکننده کنار هدف
             empties = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.EMPTY]
             random.shuffle(walls)
             random.shuffle(empties)
