@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import copy
+from collections import deque
 
 class DynamicMazeEnv:
     # تعریف شناسه‌های المان‌های محیط
@@ -29,47 +30,69 @@ class DynamicMazeEnv:
         # مسیر گشت‌زنی مانع متحرک با حرکت مربعی (سطرهای 4 تا 6 و ستون‌های 7 تا 9)
         self.patrol_route = [(4, 7), (4, 8), (4, 9), (5, 9), (6, 9), (6, 8), (6, 7), (5, 7)]
         
-        self._build_grid()
+        self._generate_valid_map()
         self.reset()
+
+    def _generate_valid_map(self):
+        """تولید نقشه با تضمین وجود مسیر معتبر (الزام سند)"""
+        max_attempts = 1000
+        for _ in range(max_attempts):
+            self._build_grid()
+            if self._bfs_check():
+                return
+        raise Exception("Could not generate a valid map after 1000 attempts.")
 
     def _build_grid(self):
         self.grid = np.zeros((self.grid_size, self.grid_size), dtype=int)
         
-        # ====== بازسازی دقیق نقشه قبلی برای جلوگیری از جابجایی موانع ثابت ======
-        old_door_pos = (7, 7)
-        old_patrol_route = [(4, 4), (4, 5), (4, 6), (4, 7), (4, 8), (4, 7), (4, 6), (4, 5)]
+        # قرار دادن المان‌های اصلی
+        self.grid[self.key_pos] = self.KEY
+        self.grid[self.door_pos] = self.DOOR
+        self.grid[self.goal_pos] = self.GOAL
         
         cells = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size)]
         cells.remove(self.start_pos)
         cells.remove(self.key_pos)
-        cells.remove(old_door_pos)
+        cells.remove(self.door_pos)
         cells.remove(self.goal_pos)
-        for p in set(old_patrol_route):
+        for p in set(self.patrol_route):
             if p in cells:
                 cells.remove(p)
                 
         random.shuffle(cells)
         
-        for i in range(30):
+        # 35 دیوار (> 15% از 225 خانه) و 8 جریمه
+        for i in range(35):
             self.grid[cells[i]] = self.WALL
-        for i in range(30, 38):
+        for i in range(35, 43):
             self.grid[cells[i]] = self.PENALTY
-        # ===================================================================
 
-        # قرار دادن المان‌های اصلی جدید در نقشه
-        self.grid[self.key_pos] = self.KEY
-        self.grid[self.goal_pos] = self.GOAL
+    def _bfs_check(self):
+        """اعتبارسنجی نقشه: مسیر شروع تا کلید (بدون عبور از در) و مسیر کلید تا هدف"""
+        # 1. از شروع تا کلید (در به عنوان دیوار در نظر گرفته می‌شود)
+        if not self._has_path(self.start_pos, self.key_pos, impassable=[self.WALL, self.DOOR]):
+            return False
+        # 2. از کلید تا هدف (در قابل عبور است)
+        if not self._has_path(self.key_pos, self.goal_pos, impassable=[self.WALL]):
+            return False
+        return True
+
+    def _has_path(self, start, target, impassable):
+        queue = deque([start])
+        visited = set([start])
         
-        # پاک کردن محل قبلی در
-        self.grid[old_door_pos] = self.EMPTY
-        
-        # قرار دادن درِ جدید (بالای هدف)
-        self.grid[self.door_pos] = self.DOOR
-        
-        # اطمینان از اینکه مسیر مانع متحرک جدید توسط دیوارهای قبلی مسدود نشده باشد
-        for p in self.patrol_route:
-            if self.grid[p] == self.WALL or self.grid[p] == self.PENALTY:
-                self.grid[p] = self.EMPTY
+        while queue:
+            r, c = queue.popleft()
+            if (r, c) == target:
+                return True
+                
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < self.grid_size and 0 <= nc < self.grid_size:
+                    if (nr, nc) not in visited and self.grid[nr, nc] not in impassable:
+                        visited.add((nr, nc))
+                        queue.append((nr, nc))
+        return False
 
     def reset(self):
         self.agent_pos = self.start_pos
@@ -225,41 +248,43 @@ class DynamicMazeEnv:
         return transitions
 
     def generate_similar_map(self):
-        new_env = copy.deepcopy(self)
-        new_env.use_reward_shaping = self.use_reward_shaping
-        
-        walls = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.WALL]
-        empties = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.EMPTY]
-        
-        if len(walls) >= 3 and len(empties) >= 3:
-            for i in range(3):
-                wr, wc = random.choice(walls)
-                er, ec = random.choice(empties)
-                new_env.grid[wr, wc] = self.EMPTY
-                new_env.grid[er, ec] = self.WALL
-                walls.remove((wr, wc))
-                empties.remove((er, ec))
-                
-        return new_env
+        max_attempts = 1000
+        for _ in range(max_attempts):
+            new_env = copy.deepcopy(self)
+            new_env.use_reward_shaping = self.use_reward_shaping
+            walls = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.WALL]
+            empties = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.EMPTY]
+            if len(walls) >= 3 and len(empties) >= 3:
+                for i in range(3):
+                    wr, wc = random.choice(walls)
+                    er, ec = random.choice(empties)
+                    new_env.grid[wr, wc] = self.EMPTY
+                    new_env.grid[er, ec] = self.WALL
+                    walls.remove((wr, wc))
+                    empties.remove((er, ec))
+            # اعتبارسنجی نقشه جدید
+            if new_env._bfs_check():
+                return new_env
+        return self
 
     def generate_different_map(self):
-        new_env = copy.deepcopy(self)
-        new_env.use_reward_shaping = self.use_reward_shaping
-        
-        walls = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.WALL]
-        empties = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.EMPTY]
-        
-        random.shuffle(walls)
-        random.shuffle(empties)
-        
-        for i in range(min(10, len(walls))):
-            wr, wc = walls[i]
-            er, ec = empties[i]
-            new_env.grid[wr, wc] = self.EMPTY
-            new_env.grid[er, ec] = self.WALL
-            
-        for i in range(10, min(15, len(empties))):
-            er, ec = empties[i]
-            new_env.grid[er, ec] = self.PENALTY
-            
-        return new_env
+        max_attempts = 1000
+        for _ in range(max_attempts):
+            new_env = copy.deepcopy(self)
+            new_env.use_reward_shaping = self.use_reward_shaping
+            walls = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.WALL]
+            empties = [(r, c) for r in range(self.grid_size) for c in range(self.grid_size) if new_env.grid[r, c] == self.EMPTY]
+            random.shuffle(walls)
+            random.shuffle(empties)
+            for i in range(min(10, len(walls))):
+                wr, wc = walls[i]
+                er, ec = empties[i]
+                new_env.grid[wr, wc] = self.EMPTY
+                new_env.grid[er, ec] = self.WALL
+            for i in range(10, min(15, len(empties))):
+                er, ec = empties[i]
+                new_env.grid[er, ec] = self.PENALTY
+            # اعتبارسنجی نقشه جدید
+            if new_env._bfs_check():
+                return new_env
+        return self
