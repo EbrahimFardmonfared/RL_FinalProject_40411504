@@ -12,6 +12,11 @@ from agents.sarsa_lambda import SarsaLambdaAgent
 from agents.value_iteration import ValueIterationAgent
 from gui.renderer import Renderer
 
+# تعداد اپیزودهایی که پیش از نمایش زنده، به‌صورت آفلاین (بدون رندر) برای پیش‌آموزش عامل اجرا می‌شود.
+PRETRAIN_EPISODES = 500
+PRETRAIN_MAX_STEPS = 500
+
+
 class MazeApp:
     def __init__(self):
         pygame.init()
@@ -19,41 +24,57 @@ class MazeApp:
         self.running = True
         self.paused = False
         self.show_policy = False
-        
+
         self.env_type = 'Source'
         self.algo_name = 'Q-Learning'
         self.mode = 'Train'
-        
+
         self.recent_successes = []
         self.episode = 1
         self.step_count = 0
         self.ep_reward = 0
-        
+
         self.setup_env_and_agent()
         self.renderer = Renderer(self.env)
-        
+
     def setup_env_and_agent(self):
         """راه‌اندازی محیط و عامل بر اساس انتخاب‌های کاربر در رابط کاربری"""
         self.env = DynamicMazeEnv(use_reward_shaping=False)
-        # 🔴 رفع باگ: ذخیره شیء بازگردانده شده در self.env
+        # رفع باگ: ذخیره شیء بازگردانده شده در self.env
         if self.env_type == 'Similar' and hasattr(self.env, 'generate_similar_map'):
             self.env = self.env.generate_similar_map()
         elif self.env_type == 'Different' and hasattr(self.env, 'generate_different_map'):
             self.env = self.env.generate_different_map()
-            
+
         if self.algo_name == 'Q-Learning':
             self.agent = QLearningAgent(self.env)
+            self._pretrain_agent()
         elif self.algo_name == 'SARSA':
             self.agent = SarsaLambdaAgent(self.env)
+            self._pretrain_agent()
         else:
             self.agent = ValueIterationAgent(self.env)
             print("Computing Value Iteration Optimal Policy... Please wait.")
             self.agent.run()
             print("Value Iteration Converged!")
-            
+
         self.reset_episode()
         self.recent_successes = []
         self.episode = 1
+
+    def _pretrain_agent(self):
+        """
+        رفع باگ اصلی: پیش از نمایش زنده، عامل Q-Learning/SARSA را به‌صورت آفلاین
+        (بدون رندر گرافیکی، برای سرعت) به تعداد PRETRAIN_EPISODES اپیزود آموزش می‌دهیم.
+        بدون این مرحله، جدول Q همه‌جا صفر بود و عامل با epsilon≈1 عملاً تصادفی حرکت می‌کرد
+        و حتی پس از برداشتن کلید (چون Q(s,a) برای حالت‌های k=1 هم صفر بود) هیچ سیگنالی
+        برای رفتن به‌سمت هدف نداشت.
+        """
+        print(f"در حال پیش‌آموزش عامل ({self.algo_name}) با {PRETRAIN_EPISODES} اپیزود... لطفاً صبر کنید.")
+        self.agent.train(episodes=PRETRAIN_EPISODES, max_steps=PRETRAIN_MAX_STEPS)
+        # بعد از پیش‌آموزش، epsilon از قبل تا epsilon_end کاهش یافته؛
+        # اگر حالت روی Train باشد، ادامه‌ی یادگیری زنده از همین نقطه‌ی خوب شروع می‌شود.
+        print(f"پیش‌آموزش تمام شد. epsilon فعلی = {getattr(self.agent, 'epsilon', 0.0):.3f}")
 
     def reset_episode(self):
         self.state = self.env.reset()
@@ -113,24 +134,24 @@ class MazeApp:
         next_state, reward, done, info = self.env.step(action)
         self.step_count += 1
         self.ep_reward += reward
-        
+
         if self.mode == 'Train':
             if self.algo_name == 'Q-Learning':
                 best_next = np.argmax([self.agent.get_q(next_state, a) for a in range(4)])
                 td_target = reward + self.agent.gamma * self.agent.get_q(next_state, best_next)
                 td_error = td_target - self.agent.get_q(self.state, action)
                 self.agent.Q[(self.state, action)] += self.agent.alpha * td_error
-                
+
             elif self.algo_name == 'SARSA':
                 next_action = self.get_action_for_state(next_state)
                 td_target = reward + self.agent.gamma * self.agent.get_q(next_state, next_action)
                 td_error = td_target - self.agent.get_q(self.state, action)
-                
+
                 if getattr(self.agent, 'trace_type', 'replacing') == 'accumulating':
                     self.agent.E[(self.state, action)] = self.agent.E.get((self.state, action), 0.0) + 1.0
                 else:
                     self.agent.E[(self.state, action)] = 1.0
-                    
+
                 for (s, a) in list(self.agent.E.keys()):
                     self.agent.Q[(s, a)] += self.agent.alpha * td_error * self.agent.E[(s, a)]
                     self.agent.E[(s, a)] *= self.agent.gamma * self.agent.lmbda
@@ -143,13 +164,13 @@ class MazeApp:
             self.recent_successes.append(is_success)
             if len(self.recent_successes) > 100:
                 self.recent_successes.pop(0)
-            
+
             if self.mode == 'Train' and hasattr(self.agent, 'decay_type'):
                 if self.agent.decay_type == 'exponential':
                     self.agent.epsilon = max(self.agent.epsilon_end, self.agent.epsilon * self.agent.decay_rate)
                 else:
                     self.agent.epsilon = max(self.agent.epsilon_end, self.agent.epsilon - self.agent.decay_rate)
-            
+
             self.episode += 1
             self.reset_episode()
         else:
@@ -162,9 +183,9 @@ class MazeApp:
         while self.running:
             self.handle_events()
             self.step()
-            
+
             success_rate = (sum(self.recent_successes) / len(self.recent_successes) * 100) if self.recent_successes else 0.0
-            
+
             stats = {
                 'Mode': self.mode,
                 'Algorithm': self.algo_name,
@@ -177,10 +198,11 @@ class MazeApp:
                 'Has Key': 'Yes' if self.env.has_key else 'No',
                 'FPS': self.fps
             }
-            
+
             self.renderer.render(self.env, self.agent, stats, self.show_policy)
             clock.tick(self.fps)
         pygame.quit()
+
 
 if __name__ == '__main__':
     app = MazeApp()
